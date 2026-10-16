@@ -27,6 +27,7 @@ constexpr SOCKET INVALID_SOCKET = -1;
 inline int closesocket(SOCKET s) { return close(s); }
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <cmath>
@@ -1745,4 +1746,3 @@ int main() {
     if (failures == 0) std::cout << "All PhoneCast tests passed.\n";
     return failures == 0 ? 0 : 1;
 }
-
