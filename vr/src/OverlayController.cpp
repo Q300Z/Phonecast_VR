@@ -28,12 +28,12 @@ void OverlayController::Apply(OverlayAction action) noexcept {
         case OverlayAction::ScaleUp:
             if (IsControllerMode(settings_.placementMode))
                 ActiveController(settings_).scale = Clamp(ActiveController(settings_).scale + 0.05F, 0.25F, 3.0F);
-            else settings_.widthMeters = Clamp(settings_.widthMeters + 0.05F, 0.1F, 5.0F);
+            else settings_.widthMeters = Clamp(settings_.widthMeters + 0.05F, 0.04F, 5.0F);
             break;
         case OverlayAction::ScaleDown:
             if (IsControllerMode(settings_.placementMode))
                 ActiveController(settings_).scale = Clamp(ActiveController(settings_).scale - 0.05F, 0.25F, 3.0F);
-            else settings_.widthMeters = Clamp(settings_.widthMeters - 0.05F, 0.1F, 5.0F);
+            else settings_.widthMeters = Clamp(settings_.widthMeters - 0.05F, 0.04F, 5.0F);
             break;
         case OverlayAction::MoveLeft:
             if (settings_.placementMode == PlacementMode::WorldLocked && settings_.worldTransformValid)
@@ -93,6 +93,8 @@ void OverlayController::Apply(OverlayAction action) noexcept {
             settings_.placementMode = PlacementMode::LeftControllerLocked; break;
         case OverlayAction::RightControllerLocked:
             settings_.placementMode = PlacementMode::RightControllerLocked; break;
+        case OverlayAction::PhoneTracked:
+            settings_.placementMode = PlacementMode::PhoneTracked; break;
         case OverlayAction::ControllerTiltUp:
             if (IsControllerMode(settings_.placementMode))
                 ActiveController(settings_).tiltDegrees = Clamp(ActiveController(settings_).tiltDegrees + 5.0F, -180.0F, 180.0F);

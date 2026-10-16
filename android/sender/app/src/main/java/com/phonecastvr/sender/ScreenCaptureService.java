@@ -128,6 +128,7 @@ public final class ScreenCaptureService extends Service {
     private VirtualDisplay virtualDisplay;
     private EncoderSession encoderSession;
     private NetworkStreamer networkStreamer;
+    private PhoneSensorController sensorController;
     private int densityDpi;
     private CaptureConfig.StreamProfile streamProfile = CaptureConfig.StreamProfile.STANDARD;
     private long lastStatusNanos;
@@ -336,6 +337,21 @@ public final class ScreenCaptureService extends Service {
 
             DisplayMetrics metrics = currentDisplayMetrics();
             densityDpi = metrics.densityDpi;
+            byte[] screenMetricsBytes = computeScreenMetricsPayload(metrics);
+            if (screenMetricsBytes != null) {
+                networkStreamer.offerScreenMetrics(screenMetricsBytes, metrics.widthPixels, metrics.heightPixels);
+            }
+
+            sensorController = new PhoneSensorController(this, (timestampMicros, sensorType, accuracy, flags,
+                                                                qx, qy, qz, qw, gyroX, gyroY, gyroZ, accelX, accelY, accelZ) -> {
+                NetworkStreamer streamer = activeNetworkStreamer;
+                if (streamer != null) {
+                    streamer.offerImu(timestampMicros, sensorType, accuracy, flags,
+                            qx, qy, qz, qw, gyroX, gyroY, gyroZ, accelX, accelY, accelZ);
+                }
+            });
+            sensorController.start();
+
             CaptureConfig.Size size = CaptureConfig.fitWithinLimit(
                     metrics.widthPixels, metrics.heightPixels, streamProfile);
             encoderSession = createEncoder(size);
@@ -522,6 +538,11 @@ public final class ScreenCaptureService extends Service {
             virtualDisplay.resize(requested.width, requested.height, densityDpi);
             virtualDisplay.setSurface(replacement.surface);
             requestSyncFrame();
+            DisplayMetrics metrics = currentDisplayMetrics();
+            byte[] screenMetricsBytes = computeScreenMetricsPayload(metrics);
+            if (screenMetricsBytes != null && networkStreamer != null) {
+                networkStreamer.offerScreenMetrics(screenMetricsBytes, metrics.widthPixels, metrics.heightPixels);
+            }
             broadcastStatus(true, "Capture resized after orientation/content change", requested);
             Log.i(TAG, "Capture resized to " + requested.width + "x" + requested.height);
         } catch (IOException | RuntimeException error) {
@@ -553,16 +574,51 @@ public final class ScreenCaptureService extends Service {
     private DisplayMetrics currentDisplayMetrics() {
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        if (Build.VERSION.SDK_INT >= 30) {
-            Rect bounds = windowManager.getCurrentWindowMetrics().getBounds();
-            metrics.widthPixels = bounds.width();
-            metrics.heightPixels = bounds.height();
-            metrics.densityDpi = getResources().getConfiguration().densityDpi;
-        } else {
+        if (windowManager != null && windowManager.getDefaultDisplay() != null) {
             //noinspection deprecation
             windowManager.getDefaultDisplay().getRealMetrics(metrics);
         }
+        if (Build.VERSION.SDK_INT >= 30 && windowManager != null) {
+            Rect bounds = windowManager.getCurrentWindowMetrics().getBounds();
+            metrics.widthPixels = bounds.width();
+            metrics.heightPixels = bounds.height();
+            if (metrics.densityDpi == 0) {
+                metrics.densityDpi = getResources().getConfiguration().densityDpi;
+            }
+        }
         return metrics;
+    }
+
+    private static byte[] computeScreenMetricsPayload(DisplayMetrics metrics) {
+        int widthPixels = metrics.widthPixels;
+        int heightPixels = metrics.heightPixels;
+        int densityDpi = metrics.densityDpi > 0 ? metrics.densityDpi : 160;
+        float xdpi = metrics.xdpi;
+        float ydpi = metrics.ydpi;
+        boolean measuredDpi = true;
+
+        if (!Float.isFinite(xdpi) || xdpi < 10.0f || xdpi > 2000.0f ||
+            !Float.isFinite(ydpi) || ydpi < 10.0f || ydpi > 2000.0f) {
+            xdpi = densityDpi;
+            ydpi = densityDpi;
+            measuredDpi = false;
+        }
+
+        float physicalWidthMm = (widthPixels / xdpi) * 25.4f;
+        float physicalHeightMm = (heightPixels / ydpi) * 25.4f;
+
+        if (!Float.isFinite(physicalWidthMm) || physicalWidthMm < 10.0f) physicalWidthMm = 10.0f;
+        if (physicalWidthMm > 1000.0f) physicalWidthMm = 1000.0f;
+        if (!Float.isFinite(physicalHeightMm) || physicalHeightMm < 10.0f) physicalHeightMm = 10.0f;
+        if (physicalHeightMm > 1000.0f) physicalHeightMm = 1000.0f;
+
+        try {
+            return StreamProtocol.screenMetricsPayload(densityDpi, widthPixels, heightPixels,
+                    physicalWidthMm, physicalHeightMm, xdpi, ydpi, measuredDpi);
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to serialize screen metrics payload", e);
+            return null;
+        }
     }
 
     private boolean brightnessRequested() {
@@ -649,6 +705,10 @@ public final class ScreenCaptureService extends Service {
             encoderSession = null;
         }
         if (old != null) old.release();
+        if (sensorController != null) {
+            sensorController.stop();
+            sensorController = null;
+        }
         if (networkStreamer != null) {
             if (activeNetworkStreamer == networkStreamer) activeNetworkStreamer = null;
             networkStreamer.stop();

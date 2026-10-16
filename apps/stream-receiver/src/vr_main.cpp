@@ -797,6 +797,15 @@ int main(int argc, char** argv) {
             }
         }
 
+        phonecast::core::protocol::StreamPhoneImu imuMessage;
+        while (server.PopImu(imuMessage)) {
+            renderer.IngestPhoneImu(imuMessage);
+        }
+
+        if (auto latestMetrics = server.LatestScreenMetrics()) {
+            renderer.SetScreenMetrics(*latestMetrics);
+        }
+
         Message message;
         phonecast::core::VideoFrame latestFrame;
         std::chrono::microseconds queueAge{};
@@ -808,6 +817,16 @@ int main(int argc, char** argv) {
             windowQueueMillis += queueMillis;
             maximumQueueMillis = std::max(maximumQueueMillis, queueMillis);
             ++windowMessages;
+            if (message.type == MessageType::ScreenMetrics) {
+                phonecast::core::protocol::StreamScreenMetrics metrics;
+                if (!phonecast::core::protocol::ParseScreenMetrics(
+                        message.payload.data(), message.payload.size(), metrics, error)) {
+                    std::cerr << "[metrics] Rejected malformed screen metrics: " << error << '\n';
+                } else {
+                    renderer.SetScreenMetrics(metrics);
+                }
+                continue;
+            }
             if (message.type == MessageType::Notification) {
                 phonecast::core::protocol::NotificationEvent notification;
                 if (!phonecast::core::protocol::ParseNotification(

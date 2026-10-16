@@ -33,12 +33,18 @@ final class NetworkStreamer {
     private final ArrayBlockingQueue<Packet> frames = new ArrayBlockingQueue<>(3);
     private final ArrayBlockingQueue<Packet> notifications = new ArrayBlockingQueue<>(8);
     private final ArrayBlockingQueue<Packet> audioFrames = new ArrayBlockingQueue<>(10);
+    private final ArrayBlockingQueue<ImuPacket> imuFrames = new ArrayBlockingQueue<>(16);
+    private final ArrayBlockingQueue<ImuPacket> imuPool = new ArrayBlockingQueue<>(24);
     private final Semaphore wakeup = new Semaphore(0);
     private final Object audioLock = new Object();
     private volatile boolean audioRequested, audioSupported;
+    private volatile boolean trackingSupported;
     private volatile Packet latestAudioConfig, latestAudioStatus;
+    private volatile Packet latestScreenMetrics;
     private long audioEpoch;
     private final AtomicLong audioDropped = new AtomicLong();
+    private final AtomicLong imuDropped = new AtomicLong();
+    private final AtomicLong imuSequence = new AtomicLong();
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean waitingForKeyFrame = new AtomicBoolean(true);
     private final AtomicLong droppedFrames = new AtomicLong();
@@ -71,6 +77,48 @@ final class NetworkStreamer {
         this.port = port;
         this.pairCode = pairCode;
         this.listener = listener;
+        for (int i = 0; i < 24; i++) {
+            imuPool.offer(new ImuPacket());
+        }
+    }
+
+    boolean trackingCapable() { return trackingSupported && running.get(); }
+    long imuDropped() { return imuDropped.get(); }
+
+    void offerScreenMetrics(byte[] payload, int width, int height) {
+        latestScreenMetrics = new Packet(TrackingProtocol.TYPE_SCREEN_METRICS, 0, 0,
+                System.nanoTime() / 1000L, width, height, payload);
+        wake();
+    }
+
+    void offerImu(long timestampMicros, int sensorType, int accuracy, int flags,
+                  float qx, float qy, float qz, float qw,
+                  float gyroX, float gyroY, float gyroZ,
+                  float accelX, float accelY, float accelZ) {
+        if (!trackingSupported || !running.get()) return;
+        ImuPacket packet = imuPool.poll();
+        if (packet == null) {
+            packet = imuFrames.poll();
+            if (packet != null) {
+                imuDropped.incrementAndGet();
+            } else {
+                packet = new ImuPacket();
+            }
+        }
+        packet.createdNanos = System.nanoTime();
+        packet.sequence = imuSequence.incrementAndGet();
+        packet.timestampMicros = timestampMicros;
+        StreamProtocol.serializePhoneImuPayload(packet.payload, sensorType, accuracy, flags,
+                qx, qy, qz, qw, gyroX, gyroY, gyroZ, accelX, accelY, accelZ);
+        if (!imuFrames.offer(packet)) {
+            ImuPacket discarded = imuFrames.poll();
+            if (discarded != null) {
+                imuDropped.incrementAndGet();
+                imuPool.offer(discarded);
+            }
+            imuFrames.offer(packet);
+        }
+        wake();
     }
 
     void start() {
@@ -209,6 +257,11 @@ final class NetworkStreamer {
                     latestAudioConfig = null; latestAudioStatus = null;
                 }
                 listener.onAudioCapability(false);
+                trackingSupported = false;
+                ImuPacket p;
+                while ((p = imuFrames.poll()) != null) {
+                    imuPool.offer(p);
+                }
                 Thread reader = new Thread(() -> readReceiverMessages(input,activeSocket),
                         "phonecast-network-replies");
                 reader.setDaemon(true);
@@ -235,6 +288,8 @@ final class NetworkStreamer {
                 listener.onKeyFrameNeeded();
                 long nextPingNanos = 0;
                 Packet sentAudioConfig = null, sentAudioStatus = null;
+                Packet sentScreenMetrics = null;
+                int pingCycle = 0;
 
                 while (running.get()) {
                     if (System.nanoTime() - lastReplyNanos.get() > 10000000000L) {
@@ -257,10 +312,22 @@ final class NetworkStreamer {
                     }
                     long now = System.nanoTime();
                     if (now >= nextPingNanos) {
+                        byte[] pingPayload;
+                        if (audioRequested && !audioSupported && (pingCycle % 2 == 0)) {
+                            pingPayload = AudioProtocol.capability();
+                        } else if (!trackingSupported) {
+                            pingPayload = TrackingProtocol.capability();
+                        } else if (audioRequested && !audioSupported) {
+                            pingPayload = AudioProtocol.capability();
+                        } else {
+                            pingPayload = new byte[0];
+                        }
+                        pingCycle++;
                         StreamProtocol.write(output, StreamProtocol.TYPE_PING, 0, 0,
-                                now / 1000L, 0, 0, audioRequested ? AudioProtocol.capability() : new byte[0]);
+                                now / 1000L, 0, 0, pingPayload);
                         output.flush();
-                        nextPingNanos = now + 1_000_000_000L;
+                        boolean negotiating = (audioRequested && !audioSupported) || !trackingSupported;
+                        nextPingNanos = now + (negotiating ? 250_000_000L : 1_000_000_000L);
                     }
                     boolean wrote = false;
                     Packet audioConfig, audioStatus, audioFrame;
@@ -279,6 +346,27 @@ final class NetworkStreamer {
                         if (System.nanoTime() - audioFrame.createdNanos < 100_000_000L) {
                             audioFrame.write(output); wrote = true;
                         } else audioDropped.incrementAndGet();
+                    }
+                    Packet currentMetrics = latestScreenMetrics;
+                    if (trackingSupported && currentMetrics != null && currentMetrics != sentScreenMetrics) {
+                        currentMetrics.write(output);
+                        sentScreenMetrics = currentMetrics;
+                        wrote = true;
+                    }
+                    if (trackingSupported) {
+                        ImuPacket imu;
+                        while ((imu = imuFrames.poll()) != null) {
+                            if (System.nanoTime() - imu.createdNanos < 50_000_000L) {
+                                StreamProtocol.write(output, TrackingProtocol.TYPE_PHONE_IMU, 0,
+                                        imu.sequence, imu.timestampMicros, 0, 0, imu.payload);
+                                wrote = true;
+                                imuPool.offer(imu);
+                                break;
+                            } else {
+                                imuDropped.incrementAndGet();
+                                imuPool.offer(imu);
+                            }
+                        }
                     }
                     Packet notification = notifications.poll();
                     if (notification != null) { notification.write(output); wrote = true; }
@@ -312,6 +400,11 @@ final class NetworkStreamer {
                     latestAudioConfig = null; latestAudioStatus = null;
                 }
                 listener.onAudioCapability(false);
+                trackingSupported = false;
+                ImuPacket p;
+                while ((p = imuFrames.poll()) != null) {
+                    imuPool.offer(p);
+                }
             }
         }
         connection(false, "Not connected · casting stopped");
@@ -335,6 +428,10 @@ final class NetworkStreamer {
                     if (audioRequested && !audioSupported && AudioProtocol.hasCapability(payload)) {
                         audioSupported = true;
                         listener.onAudioCapability(true);
+                    }
+                    if (!trackingSupported && TrackingProtocol.hasCapability(payload)) {
+                        trackingSupported = true;
+                        wake();
                     }
                     roundTripMicros.set(Math.max(0L,
                             System.nanoTime() / 1000L - header.timestampMicros));
@@ -360,6 +457,7 @@ final class NetworkStreamer {
                 }
                 audioSupported = false;
                 listener.onAudioCapability(false);
+                trackingSupported = false;
                 try { owner.close(); } catch (IOException closing) { /* Already closed. */ }
                 wake();
             }
@@ -409,5 +507,12 @@ final class NetworkStreamer {
             StreamProtocol.write(output, type, flags, sequence, timestampMicros,
                     width, height, payload);
         }
+    }
+
+    static final class ImuPacket {
+        final byte[] payload = new byte[48];
+        long createdNanos;
+        long sequence;
+        long timestampMicros;
     }
 }

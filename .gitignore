@@ -33,3 +33,6 @@ CMakeUserPresets.json
 # Platform noise
 .DS_Store
 Thumbs.db
+
+# Agent state and logs
+.agents/

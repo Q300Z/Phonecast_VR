@@ -28,6 +28,8 @@ enum class MessageType : std::uint8_t {
     AudioConfig = 12,
     AudioFrame = 13,
     AudioStatus = 14,
+    ScreenMetrics = 15,
+    PhoneImu = 16,
 };
 
 enum MessageFlags : std::uint16_t {
@@ -79,5 +81,45 @@ bool ParseNotification(const std::uint8_t* data, std::size_t size,
 std::vector<std::uint8_t> SerializeRemoteControlStatus(const RemoteControlStatus& status);
 bool ParseRemoteControlStatus(const std::uint8_t* data, std::size_t size,
                               RemoteControlStatus& status, std::string& error);
+
+struct StreamScreenMetrics {
+    std::uint8_t version{1};
+    std::uint8_t flags{0};
+    std::uint16_t densityDpi{0};
+    std::uint32_t pixelWidth{0};
+    std::uint32_t pixelHeight{0};
+    float physicalWidthMm{0.0f};
+    float physicalHeightMm{0.0f};
+    float xdpi{0.0f};
+    float ydpi{0.0f};
+};
+
+struct StreamPhoneImu {
+    std::uint8_t version{1};
+    std::uint8_t sensorType{1};
+    std::uint8_t accuracy{3};
+    std::uint8_t flags{0};
+    float qx{0.0f};
+    float qy{0.0f};
+    float qz{0.0f};
+    float qw{1.0f};
+    float gyroX{0.0f};
+    float gyroY{0.0f};
+    float gyroZ{0.0f};
+    float accelX{0.0f};
+    float accelY{0.0f};
+    float accelZ{0.0f};
+};
+
+std::vector<std::uint8_t> TrackingCapability();
+bool HasTrackingCapability(const std::vector<std::uint8_t>& payload);
+
+std::vector<std::uint8_t> SerializeScreenMetrics(const StreamScreenMetrics& metrics);
+bool ParseScreenMetrics(const std::uint8_t* data, std::size_t size,
+                        StreamScreenMetrics& metrics, std::string& error);
+
+std::vector<std::uint8_t> SerializePhoneImu(const StreamPhoneImu& imu);
+bool ParsePhoneImu(const std::uint8_t* data, std::size_t size,
+                   StreamPhoneImu& imu, std::string& error);
 
 }  // namespace phonecast::core::protocol

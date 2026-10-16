@@ -3,6 +3,7 @@
 #include "phonecast/core/protocol/StreamProtocol.h"
 #include "phonecast/core/streaming/DecoderRecoveryController.h"
 #include "phonecast/core/streaming/GeneratedVideoSource.h"
+#include "phonecast/platform/network/TcpVideoServer.h"
 #include "phonecast/vr/interaction/ControllerShortcut.h"
 #include "phonecast/vr/interaction/OverlayInteractionController.h"
 #include "phonecast/vr/interaction/PanelDepth.h"
@@ -13,13 +14,29 @@
 #include "phonecast/vr/overlay/SettingsMenuController.h"
 #include "phonecast/vr/overlay/WristMenuGesture.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+inline int closesocket(SOCKET s) { return close(s); }
+#endif
+
 #include <chrono>
+#include <cstring>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
-#include <cmath>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -388,6 +405,9 @@ void TestOverlayControls() {
     Check(controls.Settings().leftController.lateralMeters == 0.0F &&
               controls.Settings().leftController.scale == 1.0F,
           "active hand calibration resets");
+    controls.Apply(phonecast::vr::OverlayAction::PhoneTracked);
+    Check(controls.Settings().placementMode == phonecast::vr::PlacementMode::PhoneTracked,
+          "phone-tracked mode is selectable via OverlayAction");
 }
 
 void TestControllerShortcut() {
@@ -523,6 +543,50 @@ void TestOverlaySettingsPersistence() {
     const float before = loaded.startDistanceMeters;
     Check(!store.Load(loaded, found, error) && loaded.startDistanceMeters == before,
           "nonfinite start location is rejected without replacing live settings");
+
+    saved.placementMode = phonecast::vr::PlacementMode::PhoneTracked;
+    Check(store.Save(saved, error), "save settings with phone-tracked mode");
+    Check(store.Load(loaded, found, error) && found &&
+          loaded.placementMode == phonecast::vr::PlacementMode::PhoneTracked,
+          "load settings with phone-tracked mode");
+
+    // Verify phone screen dimensions serialize and deserialize cleanly
+    const float testPhoneWidths[] = {0.072F, 0.057F, 0.04F};
+    for (float phoneWidth : testPhoneWidths) {
+        saved.widthMeters = phoneWidth;
+        Check(store.Save(saved, error), "save settings with phone screen width");
+        Check(store.Load(loaded, found, error) && found &&
+              std::abs(loaded.widthMeters - phoneWidth) < 1e-4F,
+              "load settings cleanly deserializes phone screen width");
+    }
+
+    // Verify values below 0.04m or above 5.0m are correctly rejected
+    std::ifstream validStream(path);
+    std::string settingsText((std::istreambuf_iterator<char>(validStream)),
+                             std::istreambuf_iterator<char>());
+    validStream.close();
+
+    const auto widthKey = settingsText.find("width=");
+    Check(widthKey != std::string::npos, "width key found in settings file");
+
+    std::string textBelow = settingsText;
+    textBelow.replace(widthKey, textBelow.find('\n', widthKey) - widthKey, "width=0.039");
+    { std::ofstream out(path); out << textBelow; }
+    Check(!store.Load(loaded, found, error) && error == "Overlay settings contain an invalid value.",
+          "width below 0.04m is rejected with invalid value error");
+
+    std::string textZero = settingsText;
+    textZero.replace(widthKey, textZero.find('\n', widthKey) - widthKey, "width=0.0");
+    { std::ofstream out(path); out << textZero; }
+    Check(!store.Load(loaded, found, error) && error == "Overlay settings contain an invalid value.",
+          "width of 0.0m is rejected");
+
+    std::string textAbove = settingsText;
+    textAbove.replace(widthKey, textAbove.find('\n', widthKey) - widthKey, "width=5.01");
+    { std::ofstream out(path); out << textAbove; }
+    Check(!store.Load(loaded, found, error) && error == "Overlay settings contain an invalid value.",
+          "width above 5.0m is rejected with invalid value error");
+
     std::filesystem::remove(path, ignored);
 }
 
@@ -620,6 +684,32 @@ void TestSettingsMenu() {
               phonecast::vr::SettingsMenuResult::Cancelled && !menu.IsOpen() &&
               menu.Original().widthMeters == initial.widthMeters,
           "Back from the root cancels the transaction");
+
+    // Test 5-way PlacementMode cycling including PhoneTracked
+    phonecast::vr::SettingsMenuController modeMenu;
+    modeMenu.Open(initial);
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::NextItem);
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Activate);
+    Check(modeMenu.View().title == "PLACEMENT", "enters Placement page");
+    Check(modeMenu.View().values[0] == "HEAD", "starts at HEAD");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Increase); // 1: World
+    Check(modeMenu.View().values[0] == "WORLD", "cycles to WORLD");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Increase); // 2: Left Controller
+    Check(modeMenu.View().values[0] == "LEFT CONTROLLER", "cycles to LEFT CONTROLLER");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Increase); // 3: Right Controller
+    Check(modeMenu.View().values[0] == "RIGHT CONTROLLER", "cycles to RIGHT CONTROLLER");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Increase); // 4: PhoneTracked
+    Check(modeMenu.Draft().placementMode == phonecast::vr::PlacementMode::PhoneTracked,
+          "cycles forward to PhoneTracked");
+    Check(modeMenu.View().values[0] == "PHONE TRACKED", "displays PHONE TRACKED");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Increase); // 0: Wrap forward to Head
+    Check(modeMenu.Draft().placementMode == phonecast::vr::PlacementMode::HeadLocked,
+          "cycles forward back to HeadLocked");
+    Check(modeMenu.View().values[0] == "HEAD", "displays HEAD after wrap");
+    modeMenu.Handle(phonecast::vr::SettingsMenuCommand::Decrease); // 4: Wrap backward to PhoneTracked
+    Check(modeMenu.Draft().placementMode == phonecast::vr::PlacementMode::PhoneTracked,
+          "backward wrap reaches PhoneTracked");
+    Check(modeMenu.View().values[0] == "PHONE TRACKED", "displays PHONE TRACKED on backward wrap");
 }
 
 void TestWristMenuGesture() {
@@ -683,13 +773,960 @@ void TestReceiverLifecycle() {
     quittingReceiver.Stop();
 }
 
+void TestTrackingProtocol() {
+    using namespace phonecast::core::protocol;
+    std::string error;
+
+    // 1. ScreenMetrics round-trip
+    StreamScreenMetrics metrics;
+    metrics.version = 1;
+    metrics.flags = 1;
+    metrics.densityDpi = 420;
+    metrics.pixelWidth = 1080;
+    metrics.pixelHeight = 2400;
+    metrics.physicalWidthMm = 68.5F;
+    metrics.physicalHeightMm = 152.2F;
+    metrics.xdpi = 400.2F;
+    metrics.ydpi = 400.5F;
+
+    const auto metricsBytes = SerializeScreenMetrics(metrics);
+    Check(metricsBytes.size() == 32, "screen metrics serializes to 32 bytes");
+    Check(metricsBytes[0] == 1 && metricsBytes[1] == 1, "screen metrics header fields");
+    Check(metricsBytes[28] == 0 && metricsBytes[29] == 0 &&
+          metricsBytes[30] == 0 && metricsBytes[31] == 0,
+          "screen metrics trailing reserved bytes are zero");
+
+    StreamScreenMetrics parsedMetrics;
+    Check(ParseScreenMetrics(metricsBytes.data(), metricsBytes.size(), parsedMetrics, error),
+          "screen metrics parses valid payload");
+    Check(parsedMetrics.version == 1 && parsedMetrics.flags == 1 &&
+          parsedMetrics.densityDpi == 420 &&
+          parsedMetrics.pixelWidth == 1080 && parsedMetrics.pixelHeight == 2400 &&
+          std::abs(parsedMetrics.physicalWidthMm - 68.5F) < 0.001F &&
+          std::abs(parsedMetrics.physicalHeightMm - 152.2F) < 0.001F &&
+          std::abs(parsedMetrics.xdpi - 400.2F) < 0.001F &&
+          std::abs(parsedMetrics.ydpi - 400.5F) < 0.001F,
+          "screen metrics fields round trip correctly");
+
+    // Rejection checks for ScreenMetrics
+    Check(!ParseScreenMetrics(metricsBytes.data(), 31, parsedMetrics, error),
+          "screen metrics rejects payload smaller than 32 bytes");
+    Check(!ParseScreenMetrics(metricsBytes.data(), 33, parsedMetrics, error),
+          "screen metrics rejects payload larger than 32 bytes");
+    Check(!ParseScreenMetrics(nullptr, 32, parsedMetrics, error),
+          "screen metrics rejects null data");
+
+    auto badMetricsBytes = metricsBytes;
+    badMetricsBytes[0] = 2;
+    Check(!ParseScreenMetrics(badMetricsBytes.data(), badMetricsBytes.size(), parsedMetrics, error),
+          "screen metrics rejects unsupported version");
+
+    badMetricsBytes = metricsBytes;
+    badMetricsBytes[1] = 0x02;
+    Check(!ParseScreenMetrics(badMetricsBytes.data(), badMetricsBytes.size(), parsedMetrics, error),
+          "screen metrics rejects reserved flags");
+
+    badMetricsBytes = metricsBytes;
+    badMetricsBytes[28] = 1;
+    Check(!ParseScreenMetrics(badMetricsBytes.data(), badMetricsBytes.size(), parsedMetrics, error),
+          "screen metrics rejects non-zero reserved byte");
+
+    StreamScreenMetrics invalidMetrics = metrics;
+    invalidMetrics.pixelWidth = 0;
+    Check(SerializeScreenMetrics(invalidMetrics).empty(),
+          "screen metrics serializer rejects zero width");
+    invalidMetrics = metrics;
+    invalidMetrics.pixelHeight = 20000;
+    Check(SerializeScreenMetrics(invalidMetrics).empty(),
+          "screen metrics serializer rejects excessive height");
+    invalidMetrics = metrics;
+    invalidMetrics.densityDpi = 0;
+    Check(SerializeScreenMetrics(invalidMetrics).empty(),
+          "screen metrics serializer rejects zero density DPI");
+    invalidMetrics = metrics;
+    invalidMetrics.physicalWidthMm = std::numeric_limits<float>::quiet_NaN();
+    Check(SerializeScreenMetrics(invalidMetrics).empty(),
+          "screen metrics serializer rejects non-finite physical width");
+
+    // 2. PhoneImu round-trip
+    StreamPhoneImu imu;
+    imu.version = 1;
+    imu.sensorType = 1;
+    imu.accuracy = 3;
+    imu.flags = 0;
+    imu.qx = 0.0F;
+    imu.qy = 0.0F;
+    imu.qz = 0.0F;
+    imu.qw = 1.0F;
+    imu.gyroX = 0.1F;
+    imu.gyroY = 0.2F;
+    imu.gyroZ = 0.3F;
+    imu.accelX = 0.4F;
+    imu.accelY = 0.5F;
+    imu.accelZ = 0.6F;
+
+    const auto imuBytes = SerializePhoneImu(imu);
+    Check(imuBytes.size() == 48, "phone IMU serializes to 48 bytes");
+    Check(imuBytes[0] == 1 && imuBytes[1] == 1 && imuBytes[2] == 3 && imuBytes[3] == 0,
+          "phone IMU header bytes match");
+    Check(imuBytes[44] == 0 && imuBytes[45] == 0 && imuBytes[46] == 0 && imuBytes[47] == 0,
+          "phone IMU trailing reserved bytes are zero");
+
+    StreamPhoneImu parsedImu;
+    Check(ParsePhoneImu(imuBytes.data(), imuBytes.size(), parsedImu, error),
+          "phone IMU parses valid payload");
+    Check(parsedImu.version == 1 && parsedImu.sensorType == 1 &&
+          parsedImu.accuracy == 3 && parsedImu.flags == 0 &&
+          std::abs(parsedImu.qx - 0.0F) < 0.0001F &&
+          std::abs(parsedImu.qy - 0.0F) < 0.0001F &&
+          std::abs(parsedImu.qz - 0.0F) < 0.0001F &&
+          std::abs(parsedImu.qw - 1.0F) < 0.0001F &&
+          std::abs(parsedImu.gyroX - 0.1F) < 0.0001F &&
+          std::abs(parsedImu.gyroY - 0.2F) < 0.0001F &&
+          std::abs(parsedImu.gyroZ - 0.3F) < 0.0001F &&
+          std::abs(parsedImu.accelX - 0.4F) < 0.0001F &&
+          std::abs(parsedImu.accelY - 0.5F) < 0.0001F &&
+          std::abs(parsedImu.accelZ - 0.6F) < 0.0001F,
+          "phone IMU fields round trip correctly");
+
+    // Rejection checks for PhoneImu
+    Check(!ParsePhoneImu(imuBytes.data(), 47, parsedImu, error),
+          "phone IMU rejects payload smaller than 48 bytes");
+    Check(!ParsePhoneImu(imuBytes.data(), 49, parsedImu, error),
+          "phone IMU rejects payload larger than 48 bytes");
+    Check(!ParsePhoneImu(nullptr, 48, parsedImu, error),
+          "phone IMU rejects null data");
+
+    auto badImuBytes = imuBytes;
+    badImuBytes[0] = 2;
+    Check(!ParsePhoneImu(badImuBytes.data(), badImuBytes.size(), parsedImu, error),
+          "phone IMU rejects unsupported version");
+
+    badImuBytes = imuBytes;
+    badImuBytes[1] = 0;
+    Check(!ParsePhoneImu(badImuBytes.data(), badImuBytes.size(), parsedImu, error),
+          "phone IMU rejects unsupported sensor type");
+
+    badImuBytes = imuBytes;
+    badImuBytes[2] = 4;
+    Check(!ParsePhoneImu(badImuBytes.data(), badImuBytes.size(), parsedImu, error),
+          "phone IMU rejects invalid accuracy level");
+
+    badImuBytes = imuBytes;
+    badImuBytes[3] = 0x04;
+    Check(!ParsePhoneImu(badImuBytes.data(), badImuBytes.size(), parsedImu, error),
+          "phone IMU rejects reserved flags");
+
+    badImuBytes = imuBytes;
+    badImuBytes[44] = 1;
+    Check(!ParsePhoneImu(badImuBytes.data(), badImuBytes.size(), parsedImu, error),
+          "phone IMU rejects non-zero reserved byte");
+
+    StreamPhoneImu unnormImu = imu;
+    unnormImu.qw = 0.0F;
+    Check(SerializePhoneImu(unnormImu).empty(),
+          "phone IMU serializer rejects unnormalized quaternion");
+
+    StreamPhoneImu extremeGyroImu = imu;
+    extremeGyroImu.gyroX = 55.0F;
+    Check(SerializePhoneImu(extremeGyroImu).empty(),
+          "phone IMU serializer rejects excessive gyro rate");
+
+    StreamPhoneImu extremeAccelImu = imu;
+    extremeAccelImu.accelZ = 250.0F;
+    Check(SerializePhoneImu(extremeAccelImu).empty(),
+          "phone IMU serializer rejects excessive acceleration");
+
+    // 3. Tracking Capability checks
+    const auto cap = TrackingCapability();
+    Check(cap.size() == 8, "tracking capability token is 8 bytes");
+    Check(cap[0] == 'P' && cap[1] == 'C' && cap[2] == 'T' && cap[3] == 'R' &&
+          cap[4] == 1 && cap[5] == 1 && cap[6] == 0 && cap[7] == 0,
+          "tracking capability token magic and version match");
+    Check(HasTrackingCapability(cap), "HasTrackingCapability recognizes tracking token");
+    Check(!HasTrackingCapability({}), "HasTrackingCapability rejects empty payload");
+    Check(!HasTrackingCapability({'P', 'C', 'T', 'R'}), "HasTrackingCapability rejects short payload");
+    Check(!HasTrackingCapability({'P', 'C', 'A', 'C', 1, 1, 0, 0}), "HasTrackingCapability rejects other tokens");
+
+    std::vector<std::uint8_t> compound = {'P', 'C', 'A', 'C', 1, 1, 0, 0,
+                                          'P', 'C', 'T', 'R', 1, 1, 0, 0};
+    Check(HasTrackingCapability(compound), "HasTrackingCapability recognizes token in compound payload");
+
+    Check(static_cast<std::uint8_t>(MessageType::ScreenMetrics) == 15, "ScreenMetrics wire type is 15");
+    Check(static_cast<std::uint8_t>(MessageType::PhoneImu) == 16, "PhoneImu wire type is 16");
+
+    // Check ParseHeader bounds enforcement
+    Message headerMsg;
+    std::uint32_t payloadSize = 0;
+    Message metricsWireMsg;
+    metricsWireMsg.type = MessageType::ScreenMetrics;
+    metricsWireMsg.payload = metricsBytes;
+    const auto metricsSerialized = Serialize(metricsWireMsg);
+    Check(ParseHeader(metricsSerialized.data(), kHeaderSize, headerMsg, payloadSize, error) &&
+          payloadSize == 32 && headerMsg.type == MessageType::ScreenMetrics,
+          "ParseHeader accepts 32-byte ScreenMetrics payload");
+
+    auto badHeader = metricsSerialized;
+    badHeader[8] = 0; badHeader[9] = 0; badHeader[10] = 0; badHeader[11] = 31;
+    Check(!ParseHeader(badHeader.data(), kHeaderSize, headerMsg, payloadSize, error),
+          "ParseHeader rejects non-32-byte ScreenMetrics payload");
+
+    Message imuWireMsg;
+    imuWireMsg.type = MessageType::PhoneImu;
+    imuWireMsg.payload = imuBytes;
+    const auto imuSerialized = Serialize(imuWireMsg);
+    Check(ParseHeader(imuSerialized.data(), kHeaderSize, headerMsg, payloadSize, error) &&
+          payloadSize == 48 && headerMsg.type == MessageType::PhoneImu,
+          "ParseHeader accepts 48-byte PhoneImu payload");
+
+    badHeader = imuSerialized;
+    badHeader[8] = 0; badHeader[9] = 0; badHeader[10] = 0; badHeader[11] = 47;
+    Check(!ParseHeader(badHeader.data(), kHeaderSize, headerMsg, payloadSize, error),
+          "ParseHeader rejects non-48-byte PhoneImu payload");
+}
+
+void TestTcpVideoServerImuQueueIsolation() {
+    using namespace phonecast::core::protocol;
+
+    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    Check(probe != INVALID_SOCKET, "probe socket creates");
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    Check(bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0,
+          "ephemeral test port binds");
+#ifdef _WIN32
+    int length = sizeof(address);
+#else
+    socklen_t length = sizeof(address);
+#endif
+    getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length);
+    const auto port = ntohs(address.sin_port);
+    closesocket(probe);
+
+    phonecast::platform::network::TcpVideoServer server("123456", port, false);
+    std::string error;
+    Check(server.Start(error), "tcp video server starts");
+
+    auto waitCondition = [](auto condition, int milliseconds = 2000) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+
+    SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    Check(client != INVALID_SOCKET, "client socket creates");
+    Check(waitCondition([&] {
+        return connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    }), "client connects to server");
+
+#ifdef _WIN32
+    DWORD timeout = 2000;
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+    timeval timeout{2, 0};
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+
+    auto sendMsg = [](SOCKET s, const Message& m) {
+        const auto bytes = Serialize(m);
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const int n = send(s, reinterpret_cast<const char*>(bytes.data() + sent),
+                               static_cast<int>(bytes.size() - sent),
+#ifdef _WIN32
+                               0
+#else
+                               MSG_NOSIGNAL
+#endif
+            );
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvExact = [](SOCKET s, std::uint8_t* dest, std::size_t count) {
+        std::size_t received = 0;
+        while (received < count) {
+            const int n = recv(s, reinterpret_cast<char*>(dest + received),
+                               static_cast<int>(count - received), 0);
+            if (n <= 0) return false;
+            received += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvMsg = [&](SOCKET s) {
+        std::uint8_t headerBytes[kHeaderSize]{};
+        Message m;
+        std::uint32_t pSize = 0;
+        std::string err;
+        if (!recvExact(s, headerBytes, sizeof(headerBytes))) return m;
+        if (!ParseHeader(headerBytes, sizeof(headerBytes), m, pSize, err)) return m;
+        m.payload.resize(pSize);
+        if (pSize > 0) {
+            if (!recvExact(s, m.payload.data(), pSize)) {
+                m.payload.clear();
+            }
+        }
+        return m;
+    };
+
+    // Authenticate with pairing code
+    Message hello;
+    hello.type = MessageType::Hello;
+    hello.payload = {'1', '2', '3', '4', '5', '6'};
+    Check(sendMsg(client, hello), "send hello pairing message");
+    Check(waitCondition([&] { return server.Connected(); }), "server accepts client");
+
+    // Ping with tracking capability
+    Message ping;
+    ping.type = MessageType::Ping;
+    ping.timestampMicros = 777;
+    ping.payload = TrackingCapability();
+    Check(sendMsg(client, ping), "send ping with tracking capability");
+
+    Message pong = recvMsg(client);
+    Check(pong.type == MessageType::Pong && pong.timestampMicros == 777,
+          "pong type and timestamp preserved");
+    Check(HasTrackingCapability(pong.payload),
+          "pong reply includes tracking capability token");
+
+    // Send screen metrics
+    StreamScreenMetrics metrics;
+    metrics.version = 1;
+    metrics.flags = 1;
+    metrics.densityDpi = 440;
+    metrics.pixelWidth = 1080;
+    metrics.pixelHeight = 2400;
+    metrics.physicalWidthMm = 70.0F;
+    metrics.physicalHeightMm = 155.0F;
+    metrics.xdpi = 440.0F;
+    metrics.ydpi = 440.0F;
+    Message metricsMsg;
+    metricsMsg.type = MessageType::ScreenMetrics;
+    metricsMsg.payload = SerializeScreenMetrics(metrics);
+    Check(sendMsg(client, metricsMsg), "send screen metrics message");
+
+    Check(waitCondition([&] { return server.LatestScreenMetrics().has_value(); }),
+          "server received screen metrics");
+    auto latestMetrics = server.LatestScreenMetrics().value();
+    Check(latestMetrics.densityDpi == 440 && latestMetrics.pixelWidth == 1080 &&
+          latestMetrics.pixelHeight == 2400 && latestMetrics.physicalWidthMm == 70.0F,
+          "server LatestScreenMetrics content matches");
+
+    // Send 20 IMU messages into queue of capacity 16
+    for (unsigned i = 0; i < 20; ++i) {
+        StreamPhoneImu imu;
+        imu.version = 1;
+        imu.sensorType = 1;
+        imu.accuracy = 3;
+        imu.flags = 0;
+        imu.qw = 1.0F;
+        imu.gyroX = static_cast<float>(i) * 0.5F;
+        Message imuMsg;
+        imuMsg.type = MessageType::PhoneImu;
+        imuMsg.sequence = i;
+        imuMsg.payload = SerializePhoneImu(imu);
+        Check(sendMsg(client, imuMsg), "send phone IMU message");
+    }
+
+    Check(waitCondition([&] { return server.ImuReceived() == 20; }),
+          "server received all 20 IMU messages");
+    Check(server.ImuDropped() >= 4,
+          "server dropped overflow IMU messages to honor bounded capacity 16");
+
+    // Pop all items and check FIFO drop-oldest ordering
+    StreamPhoneImu popped;
+    int poppedCount = 0;
+    std::vector<float> poppedGyro;
+    while (server.PopImu(popped)) {
+        ++poppedCount;
+        poppedGyro.push_back(popped.gyroX);
+    }
+    Check(poppedCount == 16, "exactly 16 IMU packets drained from queue");
+    Check(!poppedGyro.empty() && std::abs(poppedGyro.front() - (4.0F * 0.5F)) < 0.001F,
+          "earliest packet in bounded queue is index 4 (oldest dropped)");
+    Check(!poppedGyro.empty() && std::abs(poppedGyro.back() - (19.0F * 0.5F)) < 0.001F,
+          "latest packet in bounded queue is index 19");
+    Check(!server.PopImu(popped), "IMU queue is empty after popping");
+
+    // Video queue and stats must be completely isolated and untouched
+    const auto stats = server.Stats();
+    Check(stats.receivedFrames == 0, "video frames received is 0");
+    Check(stats.droppedFrames == 0, "video frames dropped is 0");
+    Check(stats.resyncRequests == 0, "video resync requests is 0");
+    Check(stats.queueDepth == 0, "video queue depth is 0");
+
+    closesocket(client);
+    Check(waitCondition([&] { return !server.Connected(); }),
+          "server observes client disconnect");
+    server.Stop();
+}
+
+void TestTcpVideoServerImuFloodingUnderVideoLoad() {
+    using namespace phonecast::core::protocol;
+    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    Check(probe != INVALID_SOCKET, "flood: probe socket creates");
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    Check(bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0, "flood: ephemeral port binds");
+#ifdef _WIN32
+    int length = sizeof(address);
+#else
+    socklen_t length = sizeof(address);
+#endif
+    getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length);
+    const auto port = ntohs(address.sin_port);
+    closesocket(probe);
+
+    phonecast::platform::network::TcpVideoServer server("123456", port, false);
+    std::string error;
+    Check(server.Start(error), "flood: tcp server starts");
+
+    auto waitCondition = [](auto condition, int milliseconds = 2000) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+
+    SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    Check(client != INVALID_SOCKET, "flood: client socket creates");
+    Check(waitCondition([&] {
+        return connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    }), "flood: client connects");
+
+    auto sendMsg = [](SOCKET s, const Message& m) {
+        const auto bytes = Serialize(m);
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const int n = send(s, reinterpret_cast<const char*>(bytes.data() + sent),
+                               static_cast<int>(bytes.size() - sent),
+#ifdef _WIN32
+                               0
+#else
+                               MSG_NOSIGNAL
+#endif
+            );
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvExact = [](SOCKET s, std::uint8_t* dest, std::size_t count) {
+        std::size_t received = 0;
+        while (received < count) {
+            const int n = recv(s, reinterpret_cast<char*>(dest + received),
+                               static_cast<int>(count - received), 0);
+            if (n <= 0) return false;
+            received += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvMsg = [&](SOCKET s) {
+        std::uint8_t headerBytes[kHeaderSize]{};
+        Message m;
+        std::uint32_t pSize = 0;
+        std::string err;
+        if (!recvExact(s, headerBytes, sizeof(headerBytes))) return m;
+        if (!ParseHeader(headerBytes, sizeof(headerBytes), m, pSize, err)) return m;
+        m.payload.resize(pSize);
+        if (pSize > 0) {
+            if (!recvExact(s, m.payload.data(), pSize)) {
+                m.payload.clear();
+            }
+        }
+        return m;
+    };
+
+    // Authenticate
+    Message hello;
+    hello.type = MessageType::Hello;
+    hello.payload = {'1', '2', '3', '4', '5', '6'};
+    Check(sendMsg(client, hello), "flood: send hello");
+    Check(waitCondition([&] { return server.Connected(); }), "flood: server connected");
+
+    // Negotiate tracking
+    Message ping;
+    ping.type = MessageType::Ping;
+    ping.timestampMicros = 888;
+    ping.payload = TrackingCapability();
+    Check(sendMsg(client, ping), "flood: send ping tracking");
+    Message pong = recvMsg(client);
+    Check(HasTrackingCapability(pong.payload), "flood: tracking capability negotiated");
+
+    // Send video config
+    Message configMsg;
+    configMsg.type = MessageType::VideoConfig;
+    configMsg.payload = {0x01, 0x02, 0x03};
+    Check(sendMsg(client, configMsg), "flood: send video config");
+
+    // Drain initial keyframe request triggered by VideoConfig
+    Message reqKey = recvMsg(client);
+    Check(reqKey.type == MessageType::RequestKeyFrame, "flood: received expected initial keyframe request");
+
+    // Pop the VideoConfig on server side
+    Message poppedConfig;
+    Check(waitCondition([&] { return server.Pop(poppedConfig); }), "flood: server pops video config");
+    Check(poppedConfig.type == MessageType::VideoConfig, "flood: popped config matches");
+
+    // Send Key Frame (seq 0)
+    Message keyFrame;
+    keyFrame.type = MessageType::VideoFrame;
+    keyFrame.flags = MessageFlags::KeyFrame;
+    keyFrame.sequence = 0;
+    keyFrame.payload = {0x00, 0x00, 0x00, 0x01, 0x65};
+    Check(sendMsg(client, keyFrame), "flood: send initial keyframe");
+
+    // Start background thread that pops video frames from the server
+    std::atomic<bool> stopPopping{false};
+    std::atomic<int> poppedVideoCount{0};
+    std::thread popThread([&] {
+        while (!stopPopping.load()) {
+            Message vMsg;
+            if (server.Pop(vMsg)) {
+                ++poppedVideoCount;
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+            }
+        }
+        // Drain any remaining
+        Message vMsg;
+        while (server.Pop(vMsg)) {
+            ++poppedVideoCount;
+        }
+    });
+
+    // Start background thread polling LatestImu and PopImu
+    std::thread imuDrainThread([&] {
+        StreamPhoneImu imu;
+        while (!stopPopping.load()) {
+            (void)server.LatestImu();
+            server.PopImu(imu);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    // Now send 50 delta video frames interleaved with 2,000 IMU packets!
+    // Total video frames: 1 keyframe + 50 deltas = 51 frames.
+    const int kTotalDeltas = 50;
+    const int kTotalImu = 2000;
+    const int imuPerDelta = kTotalImu / kTotalDeltas;
+
+    StreamPhoneImu baseImu;
+    baseImu.version = 1;
+    baseImu.sensorType = 1;
+    baseImu.accuracy = 3;
+    baseImu.flags = 0;
+    baseImu.qw = 1.0F;
+    const auto serializedImu = SerializePhoneImu(baseImu);
+
+    int imuSent = 0;
+    for (int delta = 1; delta <= kTotalDeltas; ++delta) {
+        // Send a burst of IMU packets
+        for (int i = 0; i < imuPerDelta; ++i) {
+            Message imuMsg;
+            imuMsg.type = MessageType::PhoneImu;
+            imuMsg.sequence = imuSent++;
+            imuMsg.payload = serializedImu;
+            sendMsg(client, imuMsg);
+        }
+
+        // Send delta video frame
+        Message deltaMsg;
+        deltaMsg.type = MessageType::VideoFrame;
+        deltaMsg.flags = 0;
+        deltaMsg.sequence = delta;
+        deltaMsg.payload = {0x00, 0x00, 0x00, 0x01, 0x41};
+        sendMsg(client, deltaMsg);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    Check(waitCondition([&] { return server.ImuReceived() == kTotalImu; }, 4000),
+          "flood: server received all 2000 IMU packets");
+    Check(waitCondition([&] { return poppedVideoCount.load() >= 51; }, 4000),
+          "flood: server processed all 51 video frames");
+
+    stopPopping.store(true);
+    popThread.join();
+    imuDrainThread.join();
+
+    // Verify video queue stats under 2,000 packet IMU flood:
+    const auto stats = server.Stats();
+    Check(stats.receivedFrames == 51, "flood: receivedFrames exactly 51");
+    Check(stats.droppedFrames == 0, "flood: droppedFrames is 0 (NO video drops)");
+    Check(stats.resyncRequests == 1, "flood: resyncRequests is 1 (only the startup VideoConfig)");
+    Check(stats.queueDepth == 0, "flood: video queue depth is 0");
+    Check(server.ImuReceived() == kTotalImu, "flood: imuReceived matches");
+
+    closesocket(client);
+    server.Stop();
+}
+
+void TestTcpVideoServerImuFifoDropOldestExactness() {
+    using namespace phonecast::core::protocol;
+    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+#ifdef _WIN32
+    int length = sizeof(address);
+#else
+    socklen_t length = sizeof(address);
+#endif
+    getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length);
+    const auto port = ntohs(address.sin_port);
+    closesocket(probe);
+
+    phonecast::platform::network::TcpVideoServer server("654321", port, false);
+    std::string error;
+    Check(server.Start(error), "fifo: server starts");
+
+    auto waitCondition = [](auto condition, int milliseconds = 2000) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+
+    SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    waitCondition([&] {
+        return connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    });
+
+    auto sendMsg = [](SOCKET s, const Message& m) {
+        const auto bytes = Serialize(m);
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const int n = send(s, reinterpret_cast<const char*>(bytes.data() + sent),
+                               static_cast<int>(bytes.size() - sent),
+#ifdef _WIN32
+                               0
+#else
+                               MSG_NOSIGNAL
+#endif
+            );
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvExact = [](SOCKET s, std::uint8_t* dest, std::size_t count) {
+        std::size_t received = 0;
+        while (received < count) {
+            const int n = recv(s, reinterpret_cast<char*>(dest + received),
+                               static_cast<int>(count - received), 0);
+            if (n <= 0) return false;
+            received += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvMsg = [&](SOCKET s) {
+        std::uint8_t headerBytes[kHeaderSize]{};
+        Message m;
+        std::uint32_t pSize = 0;
+        std::string err;
+        if (!recvExact(s, headerBytes, sizeof(headerBytes))) return m;
+        if (!ParseHeader(headerBytes, sizeof(headerBytes), m, pSize, err)) return m;
+        m.payload.resize(pSize);
+        if (pSize > 0) recvExact(s, m.payload.data(), pSize);
+        return m;
+    };
+
+    Message hello;
+    hello.type = MessageType::Hello;
+    hello.payload = {'6', '5', '4', '3', '2', '1'};
+    sendMsg(client, hello);
+    waitCondition([&] { return server.Connected(); });
+
+    Message ping;
+    ping.type = MessageType::Ping;
+    ping.payload = TrackingCapability();
+    sendMsg(client, ping);
+    recvMsg(client);
+
+    Check(server.ImuReceived() == 0, "fifo: initial received is 0");
+    Check(server.ImuDropped() == 0, "fifo: initial dropped is 0");
+
+    // Send 500 IMU packets with gyroX = -25.0f + i * 0.1f (within [-50, 50] limit)
+    const int kTotal = 500;
+    for (int i = 0; i < kTotal; ++i) {
+        StreamPhoneImu imu;
+        imu.version = 1;
+        imu.sensorType = 1;
+        imu.accuracy = 3;
+        imu.flags = 0;
+        imu.qw = 1.0F;
+        imu.gyroX = -25.0F + static_cast<float>(i) * 0.1F;
+        Message msg;
+        msg.type = MessageType::PhoneImu;
+        msg.sequence = i;
+        msg.payload = SerializePhoneImu(imu);
+        Check(!msg.payload.empty(), "fifo: payload serialization succeeds within bounds");
+        sendMsg(client, msg);
+    }
+
+    Check(waitCondition([&] { return server.ImuReceived() == kTotal; }, 3000),
+          "fifo: all 500 packets received");
+    // Bounded capacity is 16 -> exactly 500 - 16 = 484 packets must be dropped
+    Check(server.ImuDropped() == 484, "fifo: exactly 484 packets dropped");
+
+    // LatestImu must reflect the very last packet (index 499)
+    auto latest = server.LatestImu();
+    Check(latest.has_value(), "fifo: LatestImu has value");
+    float expectedLatest = -25.0F + 499.0F * 0.1F;
+    Check(std::abs(latest->gyroX - expectedLatest) < 0.001F, "fifo: LatestImu is 24.9f");
+
+    // Pop the 16 remaining items and verify exact order 484 .. 499
+    StreamPhoneImu popped;
+    int popCount = 0;
+    std::vector<float> poppedValues;
+    while (server.PopImu(popped)) {
+        ++popCount;
+        poppedValues.push_back(popped.gyroX);
+    }
+    Check(popCount == 16, "fifo: exactly 16 items popped");
+    Check(poppedValues.size() == 16, "fifo: 16 values recorded");
+    bool exactOrder = true;
+    for (int j = 0; j < 16; ++j) {
+        float expected = -25.0F + static_cast<float>(484 + j) * 0.1F;
+        if (std::abs(poppedValues[j] - expected) > 0.001F) {
+            exactOrder = false;
+        }
+    }
+    Check(exactOrder, "fifo: popped items are strictly 484 to 499 in sequential FIFO order");
+    Check(!server.PopImu(popped), "fifo: queue is completely empty after 16 pops");
+
+    closesocket(client);
+    server.Stop();
+}
+
+void TestTcpVideoServerImuAdversarialValidation() {
+    using namespace phonecast::core::protocol;
+    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+#ifdef _WIN32
+    int length = sizeof(address);
+#else
+    socklen_t length = sizeof(address);
+#endif
+    getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length);
+    const auto port = ntohs(address.sin_port);
+    closesocket(probe);
+
+    phonecast::platform::network::TcpVideoServer server("112233", port, false);
+    std::string error;
+    Check(server.Start(error), "adv: server starts");
+
+    auto waitCondition = [](auto condition, int milliseconds = 2000) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+
+    SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    waitCondition([&] {
+        return connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    });
+
+    auto sendMsg = [](SOCKET s, const Message& m) {
+        const auto bytes = Serialize(m);
+        std::size_t sent = 0;
+        while (sent < bytes.size()) {
+            const int n = send(s, reinterpret_cast<const char*>(bytes.data() + sent),
+                               static_cast<int>(bytes.size() - sent),
+#ifdef _WIN32
+                               0
+#else
+                               MSG_NOSIGNAL
+#endif
+            );
+            if (n <= 0) return false;
+            sent += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvExact = [](SOCKET s, std::uint8_t* dest, std::size_t count) {
+        std::size_t received = 0;
+        while (received < count) {
+            const int n = recv(s, reinterpret_cast<char*>(dest + received),
+                               static_cast<int>(count - received), 0);
+            if (n <= 0) return false;
+            received += static_cast<std::size_t>(n);
+        }
+        return true;
+    };
+
+    auto recvMsg = [&](SOCKET s) {
+        std::uint8_t headerBytes[kHeaderSize]{};
+        Message m;
+        std::uint32_t pSize = 0;
+        std::string err;
+        if (!recvExact(s, headerBytes, sizeof(headerBytes))) return m;
+        if (!ParseHeader(headerBytes, sizeof(headerBytes), m, pSize, err)) return m;
+        m.payload.resize(pSize);
+        if (pSize > 0) recvExact(s, m.payload.data(), pSize);
+        return m;
+    };
+
+    // Authenticate
+    Message hello;
+    hello.type = MessageType::Hello;
+    hello.payload = {'1', '1', '2', '2', '3', '3'};
+    sendMsg(client, hello);
+    waitCondition([&] { return server.Connected(); });
+
+    // Attack 1: Send 10 IMU packets BEFORE negotiating tracking capability
+    StreamPhoneImu validImu;
+    validImu.version = 1;
+    validImu.sensorType = 1;
+    validImu.accuracy = 3;
+    validImu.flags = 0;
+    validImu.qw = 1.0F;
+    const auto validBytes = SerializePhoneImu(validImu);
+
+    for (int i = 0; i < 10; ++i) {
+        Message msg;
+        msg.type = MessageType::PhoneImu;
+        msg.sequence = i;
+        msg.payload = validBytes;
+        sendMsg(client, msg);
+    }
+
+    Check(waitCondition([&] { return server.ImuDropped() == 10; }),
+          "adv: unnegotiated IMU packets dropped");
+    Check(server.ImuReceived() == 0, "adv: unnegotiated IMU not counted in received");
+    Check(!server.LatestImu().has_value(), "adv: unnegotiated IMU not exposed in LatestImu");
+
+    // Negotiate tracking capability now
+    Message ping;
+    ping.type = MessageType::Ping;
+    ping.payload = TrackingCapability();
+    sendMsg(client, ping);
+    recvMsg(client);
+
+    // Attack 2: Send 8 malformed payloads (48 bytes each to pass header framing, but invalid content)
+    std::vector<std::vector<std::uint8_t>> malformedPayloads;
+
+    // Bad version (2)
+    auto badVersion = validBytes; badVersion[0] = 2;
+    malformedPayloads.push_back(badVersion);
+
+    // Bad sensor type (99)
+    auto badSensor = validBytes; badSensor[1] = 99;
+    malformedPayloads.push_back(badSensor);
+
+    // Bad accuracy (4)
+    auto badAcc = validBytes; badAcc[2] = 4;
+    malformedPayloads.push_back(badAcc);
+
+    // Bad flags (0x04)
+    auto badFlags = validBytes; badFlags[3] = 0x04;
+    malformedPayloads.push_back(badFlags);
+
+    // Unnormalized quaternion (all zeros)
+    auto zeroQuat = validBytes;
+    std::fill(zeroQuat.begin() + 4, zeroQuat.begin() + 20, 0);
+    malformedPayloads.push_back(zeroQuat);
+
+    // Extreme angular velocity (>50 rad/s)
+    auto extremeGyro = validBytes;
+    float highRate = 55.0F;
+    std::uint32_t highRateBits{};
+    std::memcpy(&highRateBits, &highRate, 4);
+    extremeGyro[20] = static_cast<std::uint8_t>(highRateBits >> 24);
+    extremeGyro[21] = static_cast<std::uint8_t>(highRateBits >> 16);
+    extremeGyro[22] = static_cast<std::uint8_t>(highRateBits >> 8);
+    extremeGyro[23] = static_cast<std::uint8_t>(highRateBits);
+    malformedPayloads.push_back(extremeGyro);
+
+    // Extreme acceleration (>200 m/s^2)
+    auto extremeAccel = validBytes;
+    float highAccel = 250.0F;
+    std::uint32_t highAccelBits{};
+    std::memcpy(&highAccelBits, &highAccel, 4);
+    extremeAccel[32] = static_cast<std::uint8_t>(highAccelBits >> 24);
+    extremeAccel[33] = static_cast<std::uint8_t>(highAccelBits >> 16);
+    extremeAccel[34] = static_cast<std::uint8_t>(highAccelBits >> 8);
+    extremeAccel[35] = static_cast<std::uint8_t>(highAccelBits);
+    malformedPayloads.push_back(extremeAccel);
+
+    // Non-zero reserved bytes (byte 44 = 1)
+    auto nonZeroReserved = validBytes;
+    nonZeroReserved[44] = 1;
+    malformedPayloads.push_back(nonZeroReserved);
+
+    for (std::size_t i = 0; i < malformedPayloads.size(); ++i) {
+        Message msg;
+        msg.type = MessageType::PhoneImu;
+        msg.sequence = 100 + i;
+        msg.payload = malformedPayloads[i];
+        sendMsg(client, msg);
+    }
+
+    Check(waitCondition([&] { return server.ImuDropped() == 18; }),
+          "adv: all 8 malformed packets dropped (10 + 8 = 18)");
+    Check(server.ImuReceived() == 0, "adv: no malformed packet counted as received");
+    Check(!server.LatestImu().has_value(), "adv: LatestImu still empty");
+
+    // Attack 3: Send 1 valid IMU packet to confirm stream remains functional
+    Message validMsg;
+    validMsg.type = MessageType::PhoneImu;
+    validMsg.sequence = 200;
+    validMsg.payload = validBytes;
+    sendMsg(client, validMsg);
+
+    Check(waitCondition([&] { return server.ImuReceived() == 1; }),
+          "adv: valid packet received after malformed flood");
+    Check(server.LatestImu().has_value(), "adv: LatestImu now populated");
+    StreamPhoneImu popped;
+    Check(server.PopImu(popped), "adv: valid packet popped successfully");
+    Check(!server.PopImu(popped), "adv: queue empty after pop");
+
+    // Video stats must remain completely 0
+    const auto stats = server.Stats();
+    Check(stats.droppedFrames == 0, "adv: video dropped frames is 0");
+    Check(stats.resyncRequests == 0, "adv: video resync requests is 0");
+
+    closesocket(client);
+    server.Stop();
+}
+
 }  // namespace
 
 int main() {
+#ifdef _WIN32
+    WSADATA data{};
+    WSAStartup(MAKEWORD(2, 2), &data);
+#endif
     TestConfig();
     TestDecoderRecovery();
     TestGeneratedFrames();
     TestStreamProtocol();
+    TestTrackingProtocol();
     TestOverlayInteraction();
     TestOverlayControls();
     TestControllerShortcut();
@@ -698,6 +1735,14 @@ int main() {
     TestSettingsMenu();
     TestWristMenuGesture();
     TestReceiverLifecycle();
+    TestTcpVideoServerImuQueueIsolation();
+    TestTcpVideoServerImuFloodingUnderVideoLoad();
+    TestTcpVideoServerImuFifoDropOldestExactness();
+    TestTcpVideoServerImuAdversarialValidation();
+#ifdef _WIN32
+    WSACleanup();
+#endif
     if (failures == 0) std::cout << "All PhoneCast tests passed.\n";
     return failures == 0 ? 0 : 1;
 }
+

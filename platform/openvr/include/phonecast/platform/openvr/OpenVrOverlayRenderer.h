@@ -44,6 +44,8 @@ public:
     bool TakeHideRequest() override;
     bool TakeQuitRequest() override;
     bool GetPerformanceStats(vr::VrPerformanceStats& stats) override;
+    void SetScreenMetrics(const core::protocol::StreamScreenMetrics& metrics) override;
+    void IngestPhoneImu(const core::protocol::StreamPhoneImu& imu) override;
     void Stop() noexcept override;
 
 private:

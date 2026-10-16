@@ -1,4 +1,7 @@
-add_library(phonecast-openvr-backend src/OpenVrOverlayRenderer.cpp)
+add_library(phonecast-openvr-backend
+    src/OpenVrOverlayRenderer.cpp
+    src/TrackedCameraWorker.cpp
+)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(phonecast-openvr-backend PRIVATE src/SteamFrameVulkanTexture.cpp)
     # OpenVR pins a Vulkan 1.0 header for its sample renderer. Using that header

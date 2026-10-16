@@ -32,6 +32,7 @@ const char* PlacementName(PlacementMode mode) {
         case PlacementMode::WorldLocked: return "WORLD";
         case PlacementMode::LeftControllerLocked: return "LEFT CONTROLLER";
         case PlacementMode::RightControllerLocked: return "RIGHT CONTROLLER";
+        case PlacementMode::PhoneTracked: return "PHONE TRACKED";
     }
     return "UNKNOWN";
 }
@@ -114,7 +115,7 @@ SettingsMenuView SettingsMenuController::View() const {
             view.labels = {"OVERLAY SIZE", "OPACITY", "DISTANCE", "BACK"};
             view.values = {Decimal(draft_.widthMeters) + " M", Decimal(draft_.alpha, 2),
                            Decimal(draft_.distanceMeters) + " M", ""};
-            view.normalizedValues = {Normalize(draft_.widthMeters, 0.10F, 2.0F),
+            view.normalizedValues = {Normalize(draft_.widthMeters, 0.04F, 2.0F),
                                      Normalize(draft_.alpha, 0.10F, 1.0F),
                                      Normalize(draft_.distanceMeters, 0.20F, 3.0F), -1.0F};
             break;
@@ -217,7 +218,7 @@ SettingsMenuResult SettingsMenuController::Adjust(int direction) {
             return SettingsMenuResult::None;
         case Page::Appearance:
             if (selected_ == 0)
-                draft_.widthMeters = Clamp(draft_.widthMeters + direction * 0.05F, 0.10F, 2.0F);
+                draft_.widthMeters = Clamp(draft_.widthMeters + direction * 0.05F, 0.04F, 2.0F);
             else if (selected_ == 1)
                 draft_.alpha = Clamp(draft_.alpha + direction * 0.05F, 0.10F, 1.0F);
             else if (selected_ == 2)
@@ -227,7 +228,7 @@ SettingsMenuResult SettingsMenuController::Adjust(int direction) {
         case Page::Placement:
             if (selected_ == 0) {
                 int mode = static_cast<int>(draft_.placementMode);
-                mode = (mode + direction + 4) % 4;
+                mode = (mode + direction + 5) % 5;
                 draft_.placementMode = static_cast<PlacementMode>(mode);
             } else if (selected_ == 1) {
                 draft_.offsetXMeters = Clamp(draft_.offsetXMeters + direction * 0.05F, -2.0F, 2.0F);
@@ -310,7 +311,7 @@ SettingsMenuResult SettingsMenuController::SetNormalized(float value) {
         case Page::Root:
             return SettingsMenuResult::None;
         case Page::Appearance:
-            if (selected_ == 0) draft_.widthMeters = FromNormalized(value, 0.10F, 2.0F);
+            if (selected_ == 0) draft_.widthMeters = FromNormalized(value, 0.04F, 2.0F);
             else if (selected_ == 1) draft_.alpha = FromNormalized(value, 0.10F, 1.0F);
             else if (selected_ == 2) draft_.distanceMeters = FromNormalized(value, 0.20F, 3.0F);
             else return SettingsMenuResult::None;

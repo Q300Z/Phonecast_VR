@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace phonecast::platform::network {
@@ -34,6 +35,11 @@ public:
     std::uint64_t AudioDropped() const noexcept;
     std::uint64_t AudioReceivedBytes() const noexcept;
     std::uint64_t SessionGeneration() const noexcept;
+    [[nodiscard]] std::optional<core::protocol::StreamScreenMetrics> LatestScreenMetrics() const;
+    [[nodiscard]] std::optional<core::protocol::StreamPhoneImu> LatestImu() const;
+    bool PopImu(core::protocol::StreamPhoneImu& outImu);
+    [[nodiscard]] std::uint64_t ImuDropped() const noexcept;
+    [[nodiscard]] std::uint64_t ImuReceived() const noexcept;
     bool Send(const core::PointerEvent& event, std::string& error) override;
     bool SendNotificationOpen(std::uint64_t actionToken, std::string& error);
     // Drop queued prediction frames and ask the authenticated sender for a new

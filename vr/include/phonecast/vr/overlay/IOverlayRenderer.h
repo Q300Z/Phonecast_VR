@@ -15,7 +15,8 @@ enum class PlacementMode {
     HeadLocked,
     WorldLocked,
     LeftControllerLocked,
-    RightControllerLocked
+    RightControllerLocked,
+    PhoneTracked
 };
 
 enum class ControllerOrientation {
@@ -200,6 +201,8 @@ public:
         stats = {};
         return false;
     }
+    virtual void SetScreenMetrics(const core::protocol::StreamScreenMetrics& metrics) { (void)metrics; }
+    virtual void IngestPhoneImu(const core::protocol::StreamPhoneImu& imu) { (void)imu; }
     virtual void Stop() noexcept = 0;
 };
 

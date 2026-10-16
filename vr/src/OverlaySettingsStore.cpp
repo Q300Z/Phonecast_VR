@@ -16,6 +16,7 @@ const char* ModeName(PlacementMode mode) {
         case PlacementMode::WorldLocked: return "world";
         case PlacementMode::LeftControllerLocked: return "left-controller";
         case PlacementMode::RightControllerLocked: return "right-controller";
+        case PlacementMode::PhoneTracked: return "phone-tracked";
     }
     return "head";
 }
@@ -25,6 +26,7 @@ bool ParseMode(const std::string& text, PlacementMode& mode) {
     else if (text == "world") mode = PlacementMode::WorldLocked;
     else if (text == "left-controller") mode = PlacementMode::LeftControllerLocked;
     else if (text == "right-controller") mode = PlacementMode::RightControllerLocked;
+    else if (text == "phone-tracked") mode = PlacementMode::PhoneTracked;
     else return false;
     return true;
 }
@@ -110,7 +112,7 @@ bool OverlaySettingsStore::Load(OverlaySettings& settings, bool& found, std::str
 
     OverlaySettings loaded;
     if (!ParseMode(values["mode"], loaded.placementMode) ||
-        !ParseFloat(values["width"], 0.1F, 5.0F, loaded.widthMeters) ||
+        !ParseFloat(values["width"], 0.04F, 5.0F, loaded.widthMeters) ||
         !ParseFloat(values["distance"], 0.2F, 10.0F, loaded.distanceMeters) ||
         !ParseFloat(values["alpha"], 0.0F, 1.0F, loaded.alpha) ||
         !ParseFloat(values["offset_x"], -3.0F, 3.0F, loaded.offsetXMeters) ||

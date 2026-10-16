@@ -4,6 +4,7 @@
 #include "phonecast/vr/interaction/PanelDepth.h"
 #include "phonecast/vr/interaction/StartLocation.h"
 #include "phonecast/vr/overlay/WristMenuGesture.h"
+#include "TrackedCameraWorker.h"
 
 #include <openvr.h>
 
@@ -1151,6 +1152,8 @@ public:
     }
 
     vr::TrackedDeviceIndex_t DeviceForMode(phonecast::vr::PlacementMode mode) const {
+        if (mode == phonecast::vr::PlacementMode::PhoneTracked)
+            return vr::k_unTrackedDeviceIndexInvalid;
         if (mode == phonecast::vr::PlacementMode::HeadLocked)
             return vr::k_unTrackedDeviceIndex_Hmd;
         const auto role = mode == phonecast::vr::PlacementMode::LeftControllerLocked
@@ -1228,6 +1231,12 @@ public:
 
     bool AbsoluteForSettings(const phonecast::vr::OverlaySettings& settings,
                              vr::HmdMatrix34_t& absolute) const {
+        if (settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
+            if (cameraWorker) {
+                return cameraWorker->GetLatestPose(absolute);
+            }
+            return false;
+        }
         if (settings.placementMode == phonecast::vr::PlacementMode::WorldLocked &&
             settings.worldTransformValid) {
             absolute = FromArray(settings.worldTransform);
@@ -1257,6 +1266,10 @@ public:
                              &notificationTransform),
                          "Set notification transform", error)) return false;
 
+        if (cameraWorker) {
+            cameraWorker->SetActive(settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked);
+        }
+
         const float placementScale = IsControllerMode(settings.placementMode)
             ? ControllerFor(settings).scale : 1.0F;
         if (!OverlayCall(overlayApi->SetOverlayWidthInMeters(overlay, settings.widthMeters * placementScale),
@@ -1285,6 +1298,17 @@ public:
             if (!OverlayCall(overlayApi->SetOverlayTransformTrackedDeviceRelative(
                                  overlay, vr::k_unTrackedDeviceIndex_Hmd, &transform),
                              "SetOverlayTransformTrackedDeviceRelative", error)) return false;
+        } else if (settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
+            vr::HmdMatrix34_t transform{};
+            float physicalWidthMeters = 0.0F;
+            if (cameraWorker && cameraWorker->GetLatestPose(transform, &physicalWidthMeters)) {
+                if (physicalWidthMeters > 0.0F) {
+                    overlayApi->SetOverlayWidthInMeters(overlay, physicalWidthMeters);
+                }
+                if (!OverlayCall(overlayApi->SetOverlayTransformAbsolute(
+                                     overlay, vr::TrackingUniverseStanding, &transform),
+                                 "SetOverlayTransformAbsolute", error)) return false;
+            }
         } else {
             vr::HmdMatrix34_t transform{};
             if (!ControllerTransform(settings, transform)) {
@@ -1306,8 +1330,20 @@ public:
     }
 
     void UpdateControllerPlacement() {
-        if (grabbedDevice != vr::k_unTrackedDeviceIndexInvalid ||
-            !IsControllerMode(currentSettings.placementMode)) return;
+        if (grabbedDevice != vr::k_unTrackedDeviceIndexInvalid) return;
+        if (currentSettings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
+            if (!cameraWorker) return;
+            vr::HmdMatrix34_t transform{};
+            float physicalWidthMeters = 0.0F;
+            if (cameraWorker->GetLatestPose(transform, &physicalWidthMeters)) {
+                if (physicalWidthMeters > 0.0F) {
+                    overlayApi->SetOverlayWidthInMeters(overlay, physicalWidthMeters);
+                }
+                overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
+            }
+            return;
+        }
+        if (!IsControllerMode(currentSettings.placementMode)) return;
         vr::HmdMatrix34_t transform{};
         if (ControllerTransform(currentSettings, transform))
             overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
@@ -2208,6 +2244,7 @@ public:
 #else
     std::unique_ptr<SteamFrameVulkanTexture> vulkanTexture;
 #endif
+    std::unique_ptr<TrackedCameraWorker> cameraWorker;
 };
 
 OpenVrOverlayRenderer::OpenVrOverlayRenderer(core::ILogger& logger, std::string executablePath)
@@ -2244,6 +2281,9 @@ bool OpenVrOverlayRenderer::Start(const phonecast::vr::OverlaySettings& settings
         Stop();
         return false;
     }
+    impl_->cameraWorker = std::make_unique<TrackedCameraWorker>(
+        impl_->logger, impl_->system, vr::VRTrackedCamera());
+    impl_->cameraWorker->Start();
 #ifndef _WIN32
     impl_->vulkanTexture = std::make_unique<SteamFrameVulkanTexture>(impl_->logger);
     if (!impl_->vulkanTexture->Initialize(impl_->system, vr::VRCompositor(), error)) {
@@ -3001,12 +3041,28 @@ void OpenVrOverlayRenderer::Stop() noexcept {
     impl_->textureWidth = 0;
     impl_->textureHeight = 0;
 #endif
+    if (impl_->cameraWorker) {
+        impl_->cameraWorker->Stop();
+        impl_->cameraWorker.reset();
+    }
     if (impl_->system != nullptr) vr::VR_Shutdown();
     impl_->system = nullptr;
 #ifndef _WIN32
     if (impl_->vulkanTexture != nullptr) impl_->vulkanTexture->Shutdown();
     impl_->vulkanTexture.reset();
 #endif
+}
+
+void OpenVrOverlayRenderer::SetScreenMetrics(const core::protocol::StreamScreenMetrics& metrics) {
+    if (impl_ && impl_->cameraWorker) {
+        impl_->cameraWorker->SetScreenMetrics(metrics);
+    }
+}
+
+void OpenVrOverlayRenderer::IngestPhoneImu(const core::protocol::StreamPhoneImu& imu) {
+    if (impl_ && impl_->cameraWorker) {
+        impl_->cameraWorker->IngestPhoneImu(imu);
+    }
 }
 
 }  // namespace phonecast::platform::openvr

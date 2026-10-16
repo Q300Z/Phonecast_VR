@@ -180,6 +180,7 @@ struct TcpVideoServer::Implementation {
         std::uint64_t audioSequence = 0;
         std::uint64_t audioPts = 0;
         bool haveAudioSequence = false;
+        bool trackingNegotiated = false;
         std::array<std::uint8_t, core::protocol::kHeaderSize> header{};
         while (running.load() && ReceiveExact(socket, header.data(), header.size())) {
             Message message;
@@ -272,9 +273,59 @@ struct TcpVideoServer::Implementation {
                 pong.type = MessageType::Pong;
                 pong.timestampMicros = message.timestampMicros;
                 if (audioEnabled && core::audio::HasCapability(message.payload)) {
-                    pong.payload = core::audio::Capability(); audioNegotiated = true;
+                    const auto audioCap = core::audio::Capability();
+                    pong.payload.insert(pong.payload.end(), audioCap.begin(), audioCap.end());
+                    audioNegotiated = true;
+                }
+                if (core::protocol::HasTrackingCapability(message.payload)) {
+                    const auto trackCap = core::protocol::TrackingCapability();
+                    pong.payload.insert(pong.payload.end(), trackCap.begin(), trackCap.end());
+                    trackingNegotiated = true;
                 }
                 if (!SendMessage(socket, pong)) return;
+            } else if (message.type == MessageType::ScreenMetrics) {
+                if (!trackingNegotiated) continue;
+                core::protocol::StreamScreenMetrics metrics;
+                std::string parseError;
+                if (!core::protocol::ParseScreenMetrics(
+                        message.payload.data(), message.payload.size(), metrics, parseError)) {
+                    SetStatus("Rejected malformed screen metrics: " + parseError);
+                    continue;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(metricsMutex);
+                    latestScreenMetrics = metrics;
+                }
+                SetStatus("Phone screen metrics: " +
+                          std::to_string(metrics.pixelWidth) + "x" +
+                          std::to_string(metrics.pixelHeight) + " (" +
+                          std::to_string(metrics.physicalWidthMm) + "x" +
+                          std::to_string(metrics.physicalHeightMm) + " mm)");
+                continue;
+            } else if (message.type == MessageType::PhoneImu) {
+                if (!trackingNegotiated) {
+                    ++imuDropped;
+                    continue;
+                }
+                core::protocol::StreamPhoneImu imu;
+                std::string parseError;
+                if (!core::protocol::ParsePhoneImu(
+                        message.payload.data(), message.payload.size(), imu, parseError)) {
+                    SetStatus("Rejected malformed phone IMU packet: " + parseError);
+                    ++imuDropped;
+                    continue;
+                }
+                ++imuReceived;
+                {
+                    std::lock_guard<std::mutex> lock(imuMutex);
+                    latestImu = imu;
+                    if (imuQueue.size() >= kMaximumQueuedImu) {
+                        imuQueue.pop_front();
+                        ++imuDropped;
+                    }
+                    imuQueue.push_back(std::move(imu));
+                }
+                continue;
             } else if (message.type == MessageType::VideoConfig ||
                        message.type == MessageType::VideoFrame ||
                        message.type == MessageType::Notification) {
@@ -334,12 +385,30 @@ struct TcpVideoServer::Implementation {
                 keyFrameRequestPending = false;
             }
             { std::lock_guard<std::mutex> lock(audioMutex); audioMessages.clear(); }
+            {
+                std::lock_guard<std::mutex> lock(imuMutex);
+                imuQueue.clear();
+                latestImu.reset();
+            }
+            {
+                std::lock_guard<std::mutex> lock(metricsMutex);
+                latestScreenMetrics.reset();
+            }
             HandleClient(accepted);
-            connected.store(false);
-            { std::lock_guard<std::mutex> lock(audioMutex); audioMessages.clear(); }
             remoteControlStatusKnown.store(false);
             remoteControlAppEnabled.store(false);
             remoteControlAccessibilityEnabled.store(false);
+            connected.store(false);
+            { std::lock_guard<std::mutex> lock(audioMutex); audioMessages.clear(); }
+            {
+                std::lock_guard<std::mutex> lock(imuMutex);
+                imuQueue.clear();
+                latestImu.reset();
+            }
+            {
+                std::lock_guard<std::mutex> lock(metricsMutex);
+                latestScreenMetrics.reset();
+            }
             SOCKET expectedClient = accepted;
             if (clientSocket.compare_exchange_strong(expectedClient, INVALID_SOCKET))
                 closesocket(accepted);
@@ -356,6 +425,16 @@ struct TcpVideoServer::Implementation {
     mutable std::mutex audioMutex;
     std::deque<QueuedMessage> audioMessages;
     std::atomic<std::uint64_t> audioDropped{}, audioReceivedBytes{}, sessionGeneration{};
+
+    static constexpr std::size_t kMaximumQueuedImu = 16;
+    mutable std::mutex imuMutex;
+    std::deque<core::protocol::StreamPhoneImu> imuQueue;
+    std::optional<core::protocol::StreamPhoneImu> latestImu;
+    std::atomic<std::uint64_t> imuDropped{0};
+    std::atomic<std::uint64_t> imuReceived{0};
+
+    mutable std::mutex metricsMutex;
+    std::optional<core::protocol::StreamScreenMetrics> latestScreenMetrics;
     std::atomic_bool running{};
     std::atomic_bool connected{};
     std::atomic_bool remoteControlStatusKnown{};
@@ -441,6 +520,32 @@ bool TcpVideoServer::PopAudio(Message& message) {
 std::uint64_t TcpVideoServer::AudioDropped() const noexcept { return implementation_->audioDropped.load(); }
 std::uint64_t TcpVideoServer::AudioReceivedBytes() const noexcept { return implementation_->audioReceivedBytes.load(); }
 std::uint64_t TcpVideoServer::SessionGeneration() const noexcept { return implementation_->sessionGeneration.load(); }
+
+std::optional<core::protocol::StreamScreenMetrics> TcpVideoServer::LatestScreenMetrics() const {
+    std::lock_guard<std::mutex> lock(implementation_->metricsMutex);
+    return implementation_->latestScreenMetrics;
+}
+
+std::optional<core::protocol::StreamPhoneImu> TcpVideoServer::LatestImu() const {
+    std::lock_guard<std::mutex> lock(implementation_->imuMutex);
+    return implementation_->latestImu;
+}
+
+bool TcpVideoServer::PopImu(core::protocol::StreamPhoneImu& outImu) {
+    std::lock_guard<std::mutex> lock(implementation_->imuMutex);
+    if (implementation_->imuQueue.empty()) return false;
+    outImu = std::move(implementation_->imuQueue.front());
+    implementation_->imuQueue.pop_front();
+    return true;
+}
+
+std::uint64_t TcpVideoServer::ImuDropped() const noexcept {
+    return implementation_->imuDropped.load();
+}
+
+std::uint64_t TcpVideoServer::ImuReceived() const noexcept {
+    return implementation_->imuReceived.load();
+}
 
 void TcpVideoServer::Stop() noexcept {
     if (!implementation_) return;
