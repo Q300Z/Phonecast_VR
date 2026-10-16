@@ -221,6 +221,12 @@ The result should identify as an AArch64 ELF. Sprint 11 also builds the native s
 file out/build/linux-arm64/bin/phonecast-vr-stream-receiver
 ```
 
+To verify prerequisites, enforce Release configuration, build, and run tests in one step:
+
+```bash
+./scripts/verify-and-build-release.sh
+```
+
 Deploy `phonecast-vr-stream-receiver` and its adjacent manifest/input JSON files with Steam Linux Runtime 3.0 ARM64 (Sniper), preserve the executable bit, and launch it on Steam Frame with:
 
 ```bash
