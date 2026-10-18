@@ -262,6 +262,13 @@ TrackedCameraPoseSnapshot TrackedCameraWorker::GetSnapshot() {
     return latestSnapshot_;
 }
 
+bool TrackedCameraWorker::GetLatestCameraFrame(CameraFrameSnapshot& outSnapshot) {
+    std::lock_guard<std::mutex> lock(snapshotMutex_);
+    if (!latestFrameSnapshot_.valid) return false;
+    outSnapshot = latestFrameSnapshot_;
+    return true;
+}
+
 void TrackedCameraWorker::Stop() noexcept {
     if (running_.exchange(false)) {
         active_.store(false);
@@ -458,6 +465,19 @@ void TrackedCameraWorker::ProcessFrame(
             : 0.072F;
         latestSnapshot_.sequence = header.nFrameSequence;
         latestSnapshot_.timestamp = std::chrono::steady_clock::now();
+
+        if (active_ && buffer != nullptr && frameView.width > 0 && frameView.height > 0) {
+            latestFrameSnapshot_.valid = true;
+            latestFrameSnapshot_.width = frameView.width;
+            latestFrameSnapshot_.height = frameView.height;
+            latestFrameSnapshot_.corners = corners;
+            latestFrameSnapshot_.sequence = header.nFrameSequence;
+            const std::size_t byteCount = static_cast<std::size_t>(frameView.width) * frameView.height * 4U;
+            if (latestFrameSnapshot_.rgbaBuffer.size() != byteCount) {
+                latestFrameSnapshot_.rgbaBuffer.resize(byteCount);
+            }
+            std::memcpy(latestFrameSnapshot_.rgbaBuffer.data(), buffer, byteCount);
+        }
     }
 }
 

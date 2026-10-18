@@ -13,6 +13,10 @@
           "long": {"output": "/actions/phonecast_shortcuts/in/toggle_right"},
           "double": {"output": "/actions/phonecast_shortcuts/in/dock_right"}
         }}
+      ],
+      "haptics": [
+        {"output": "/actions/phonecast_shortcuts/out/haptic", "path": "/user/hand/left/output/haptic"},
+        {"output": "/actions/phonecast_shortcuts/out/haptic", "path": "/user/hand/right/output/haptic"}
       ]
     }
   }

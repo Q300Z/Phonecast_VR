@@ -40,7 +40,7 @@ std::uint64_t Read64(const std::uint8_t* data) {
 }
 bool IsKnownType(std::uint8_t type) {
     return type >= static_cast<std::uint8_t>(MessageType::Hello) &&
-           type <= static_cast<std::uint8_t>(MessageType::PhoneImu);
+           type <= static_cast<std::uint8_t>(MessageType::RemoteText);
 }
 
 void WriteFloat(std::vector<std::uint8_t>& bytes, std::size_t offset, float value) {
@@ -59,7 +59,7 @@ float ReadFloat(const std::uint8_t* data) {
 
 bool IsKnownPointerType(std::uint8_t type) {
     return type >= static_cast<std::uint8_t>(phonecast::core::PointerEvent::Type::Down) &&
-           type <= static_cast<std::uint8_t>(phonecast::core::PointerEvent::Type::Back);
+           type <= static_cast<std::uint8_t>(phonecast::core::PointerEvent::Type::Recents);
 }
 
 constexpr std::size_t kNotificationV1HeaderSize = 18;
@@ -115,11 +115,14 @@ bool ParseHeader(const std::uint8_t* data, std::size_t size, Message& message,
         (type == MessageType::AudioFrame && payloadSize != 1932) ||
         (type == MessageType::AudioStatus && payloadSize != 12) ||
         (type == MessageType::ScreenMetrics && payloadSize != 32) ||
-        (type == MessageType::PhoneImu && payloadSize != 48)) {
+        (type == MessageType::PhoneImu && payloadSize != 48) ||
+        (type == MessageType::RemoteText && (payloadSize < 4 || payloadSize > 4100))) {
         if (type == MessageType::ScreenMetrics) {
             error = "Invalid bounded screen metrics payload size.";
         } else if (type == MessageType::PhoneImu) {
             error = "Invalid bounded phone IMU payload size.";
+        } else if (type == MessageType::RemoteText) {
+            error = "Invalid bounded remote text payload size.";
         } else {
             error = "Invalid bounded audio payload size.";
         }
@@ -485,6 +488,38 @@ bool ParsePhoneImu(const std::uint8_t* data, std::size_t size,
     imu.accelX = accelX;
     imu.accelY = accelY;
     imu.accelZ = accelZ;
+    error.clear();
+    return true;
+}
+
+constexpr std::size_t kMaximumRemoteTextFieldSize = 4096;
+
+std::vector<std::uint8_t> SerializeRemoteText(const std::string& text) {
+    if (text.size() > kMaximumRemoteTextFieldSize) return {};
+    std::vector<std::uint8_t> bytes(4 + text.size(), 0);
+    bytes[0] = 1; // version
+    bytes[1] = 0; // flags
+    Write16(bytes, 2, static_cast<std::uint16_t>(text.size()));
+    std::copy(text.begin(), text.end(), bytes.begin() + 4);
+    return bytes;
+}
+
+bool ParseRemoteText(const std::uint8_t* data, std::size_t size,
+                     std::string& text, std::string& error) {
+    if (data == nullptr || size < 4) {
+        error = "Remote text payload is incomplete.";
+        return false;
+    }
+    if (data[0] != 1U) {
+        error = "Unsupported remote text version.";
+        return false;
+    }
+    const std::uint16_t length = Read16(data + 2);
+    if (length > kMaximumRemoteTextFieldSize || length != size - 4) {
+        error = "Invalid remote text length.";
+        return false;
+    }
+    text.assign(reinterpret_cast<const char*>(data + 4), length);
     error.clear();
     return true;
 }

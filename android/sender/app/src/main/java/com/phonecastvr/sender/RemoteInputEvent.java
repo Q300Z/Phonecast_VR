@@ -6,6 +6,8 @@ final class RemoteInputEvent {
     static final int UP = 3;
     static final int SCROLL = 4;
     static final int BACK = 5;
+    static final int HOME = 6;
+    static final int RECENTS = 7;
 
     final int type;
     final float normalizedX;

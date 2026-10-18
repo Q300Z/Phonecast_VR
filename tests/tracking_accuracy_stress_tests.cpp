@@ -189,7 +189,7 @@ void TestPlanarPnpPoseAccuracy() {
 
     const std::vector<float> noiseLevelsPx = {0.0F, 0.05F, 0.10F, 0.15F, 0.20F};
     for (float nLevel : noiseLevelsPx) {
-        std::normal_distribution<float> nDist(0.0F, nLevel);
+        std::normal_distribution<float> nDist(0.0F, std::max(1e-6F, nLevel));
         std::vector<float> posErrorsMm;
         std::vector<float> rotErrorsDeg;
 

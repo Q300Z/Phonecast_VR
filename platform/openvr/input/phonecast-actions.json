@@ -6,7 +6,8 @@
     {"name": "/actions/phonecast_shortcuts/in/toggle_left", "type": "boolean", "requirement": "optional"},
     {"name": "/actions/phonecast_shortcuts/in/toggle_right", "type": "boolean", "requirement": "optional"},
     {"name": "/actions/phonecast_shortcuts/in/dock_left", "type": "boolean", "requirement": "optional"},
-    {"name": "/actions/phonecast_shortcuts/in/dock_right", "type": "boolean", "requirement": "optional"}
+    {"name": "/actions/phonecast_shortcuts/in/dock_right", "type": "boolean", "requirement": "optional"},
+    {"name": "/actions/phonecast_shortcuts/out/haptic", "type": "vibration", "requirement": "optional"}
   ],
   "default_bindings": [
     {"controller_type": "frame_controller", "binding_url": "phonecast-bindings-frame-controller.json"}

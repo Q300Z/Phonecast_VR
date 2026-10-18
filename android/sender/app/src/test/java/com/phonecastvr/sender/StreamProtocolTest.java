@@ -33,6 +33,55 @@ public final class StreamProtocolTest {
         assertEquals(9, StreamProtocol.TYPE_NOTIFICATION);
         assertEquals(10, StreamProtocol.TYPE_REMOTE_CONTROL_STATUS);
         assertEquals(11, StreamProtocol.TYPE_NOTIFICATION_OPEN);
+        assertEquals(17, StreamProtocol.TYPE_REMOTE_TEXT);
+    }
+
+    @Test public void remoteInputSupportsHomeAndRecents() throws Exception {
+        byte[] homePayload = new byte[16];
+        homePayload[0] = (byte) RemoteInputEvent.HOME;
+        RemoteInputEvent homeEvent = StreamProtocol.parseRemoteInput(homePayload, 101L);
+        assertEquals(RemoteInputEvent.HOME, homeEvent.type);
+        assertEquals(101L, homeEvent.sequence);
+
+        byte[] recentsPayload = new byte[16];
+        recentsPayload[0] = (byte) RemoteInputEvent.RECENTS;
+        RemoteInputEvent recentsEvent = StreamProtocol.parseRemoteInput(recentsPayload, 102L);
+        assertEquals(RemoteInputEvent.RECENTS, recentsEvent.type);
+        assertEquals(102L, recentsEvent.sequence);
+    }
+
+    @Test public void remoteTextPayloadRoundTrip() throws Exception {
+        String testText = "Hello from SteamVR Keyboard! 🎮 ⌨ ◯ ▢ éàçù";
+        byte[] payload = StreamProtocol.remoteTextPayload(testText);
+        String parsed = StreamProtocol.parseRemoteText(payload);
+        assertEquals(testText, parsed);
+
+        // Empty string
+        byte[] emptyPayload = StreamProtocol.remoteTextPayload("");
+        assertEquals("", StreamProtocol.parseRemoteText(emptyPayload));
+
+        // Null string
+        byte[] nullPayload = StreamProtocol.remoteTextPayload(null);
+        assertEquals("", StreamProtocol.parseRemoteText(nullPayload));
+
+        // Incomplete / null payload parsing throws IOException
+        try {
+            StreamProtocol.parseRemoteText(null);
+            org.junit.Assert.fail("Expected IOException on null payload");
+        } catch (java.io.IOException expected) {}
+
+        try {
+            StreamProtocol.parseRemoteText(new byte[2]);
+            org.junit.Assert.fail("Expected IOException on incomplete payload (< 4 bytes)");
+        } catch (java.io.IOException expected) {}
+
+        // Oversized text (> 4096 bytes) throws IOException
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 5000; i++) sb.append('X');
+        try {
+            StreamProtocol.remoteTextPayload(sb.toString());
+            org.junit.Assert.fail("Expected IOException on text > 4096 bytes");
+        } catch (java.io.IOException expected) {}
     }
 
     @Test public void writesBoundedNotificationPayload() throws Exception {
@@ -311,6 +360,7 @@ public final class StreamProtocolTest {
             @Override public void onConnectionChanged(boolean connected, String message) {}
             @Override public void onKeyFrameNeeded() {}
             @Override public void onRemoteInput(RemoteInputEvent event) {}
+            @Override public void onRemoteText(String text) {}
             @Override public void onNotificationOpen(long actionToken) {}
             @Override public void onAudioCapability(boolean supported) {}
         });
@@ -376,6 +426,7 @@ public final class StreamProtocolTest {
             @Override public void onConnectionChanged(boolean connected, String message) {}
             @Override public void onKeyFrameNeeded() {}
             @Override public void onRemoteInput(RemoteInputEvent event) {}
+            @Override public void onRemoteText(String text) {}
             @Override public void onNotificationOpen(long actionToken) {}
             @Override public void onAudioCapability(boolean supported) {}
         });

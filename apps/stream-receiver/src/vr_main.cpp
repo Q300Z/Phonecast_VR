@@ -546,6 +546,11 @@ int main(int argc, char** argv) {
                         glance.ShowPinned();
                         saveSettings = true;
                         break;
+                    case phonecast::vr::RadialMenuAction::PhoneTracked:
+                        controls.Apply(OverlayAction::PhoneTracked);
+                        glance.ShowPinned();
+                        saveSettings = true;
+                        break;
                     case phonecast::vr::RadialMenuAction::LeftControllerLocked:
                         controls.Apply(OverlayAction::LeftControllerLocked);
                         glance.SetHand(phonecast::vr::GlanceHand::Left);
@@ -670,6 +675,14 @@ int main(int argc, char** argv) {
         for (unsigned i = 0; i < 32 && renderer.TakePointerEvent(pointerEvent); ++i) {
             if (!server.Send(pointerEvent, error))
                 std::cerr << "[input] " << error << '\n';
+        }
+
+        std::string enteredText;
+        while (renderer.TakeTextEntered(enteredText)) {
+            if (!server.SendRemoteText(enteredText, error))
+                std::cerr << "[keyboard] " << error << '\n';
+            else
+                std::cout << "[keyboard] Injected text via remote control: " << enteredText << '\n';
         }
 
         phonecast::vr::OverlaySettings vrUpdate;

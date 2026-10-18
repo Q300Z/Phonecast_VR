@@ -601,6 +601,28 @@ bool TcpVideoServer::Send(const core::PointerEvent& event, std::string& error) {
     return true;
 }
 
+bool TcpVideoServer::SendRemoteText(const std::string& text, std::string& error) {
+    auto& state = *implementation_;
+    if (!state.connected.load()) {
+        error = "The phone is not connected; remote text was not sent.";
+        return false;
+    }
+    const SOCKET socket = state.clientSocket.load();
+    if (socket == INVALID_SOCKET) {
+        error = "The phone connection closed before remote text could be sent.";
+        return false;
+    }
+    Message message;
+    message.type = MessageType::RemoteText;
+    message.payload = core::protocol::SerializeRemoteText(text);
+    if (!state.SendMessage(socket, message)) {
+        error = "Sending remote text to the phone failed.";
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
 bool TcpVideoServer::SendNotificationOpen(std::uint64_t actionToken, std::string& error) {
     auto& state = *implementation_;
     if (actionToken == 0U) {

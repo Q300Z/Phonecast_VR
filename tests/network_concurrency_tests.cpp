@@ -330,6 +330,16 @@ void TestRemoteInputAndNotificationSend() {
     Check(rxNotif.type == phonecast::core::protocol::MessageType::NotificationOpen, "Type is NotificationOpen");
     Check(rxNotif.sequence == 998877, "Notification action token matches 998877");
 
+    // Test SendRemoteText
+    Check(server.SendRemoteText("Testing Text Injection", error), "SendRemoteText succeeds", error);
+    phonecast::core::protocol::Message rxText;
+    Check(RecvMessage(client, rxText), "Client received RemoteText message");
+    Check(rxText.type == phonecast::core::protocol::MessageType::RemoteText, "Type is RemoteText");
+    std::string parsedRemoteText;
+    Check(phonecast::core::protocol::ParseRemoteText(rxText.payload.data(), rxText.payload.size(), parsedRemoteText, error),
+          "RemoteText deserialized cleanly", error);
+    Check(parsedRemoteText == "Testing Text Injection", "Text matches injected string");
+
     closesocket(client);
     server.Stop();
 }

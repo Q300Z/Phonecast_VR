@@ -39,6 +39,7 @@ enum class RadialMenuAction {
     ShowPinned,
     HeadLocked,
     WorldLocked,
+    PhoneTracked,
     LeftControllerLocked,
     RightControllerLocked,
     // Converts the current tracked placement into a stationary world anchor.
@@ -173,6 +174,11 @@ public:
     // Reports normalized phone interaction without exposing renderer-specific coordinates.
     virtual bool TakePointerEvent(core::PointerEvent& event) {
         (void)event;
+        return false;
+    }
+    // Reports entered text from VR keyboard without exposing renderer-specific types.
+    virtual bool TakeTextEntered(std::string& text) {
+        (void)text;
         return false;
     }
     // Displays a short-lived privacy-filtered notification card independently

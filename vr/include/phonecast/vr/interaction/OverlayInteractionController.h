@@ -14,6 +14,9 @@ public:
                         std::uint32_t bottomInset = 0) noexcept;
     bool IsGrabHandle(float overlayY) const noexcept;
     bool IsBackButton(float overlayX, float overlayY) const noexcept;
+    bool IsHomeButton(float overlayX, float overlayY) const noexcept;
+    bool IsRecentsButton(float overlayX, float overlayY) const noexcept;
+    bool IsKeyboardButton(float overlayX, float overlayY) const noexcept;
     bool IsCloseButton(float overlayX, float overlayY) const noexcept;
     bool IsResizeButton(float overlayX, float overlayY) const noexcept;
     core::PointerEvent PointerDown(float overlayX, float overlayY) noexcept;
@@ -21,6 +24,8 @@ public:
     core::PointerEvent PointerUp(float overlayX, float overlayY) noexcept;
     core::PointerEvent Scroll(float overlayX, float overlayY, float delta) noexcept;
     core::PointerEvent Back() noexcept;
+    core::PointerEvent Home() noexcept;
+    core::PointerEvent Recents() noexcept;
 
 private:
     core::PointerEvent Make(core::PointerEvent::Type type, float overlayX,

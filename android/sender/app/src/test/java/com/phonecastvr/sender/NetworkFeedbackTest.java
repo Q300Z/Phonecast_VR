@@ -19,6 +19,7 @@ public class NetworkFeedbackTest {
             public void onConnectionChanged(boolean ready, String message) { observe.accept(message); }
             public void onKeyFrameNeeded() {}
             public void onRemoteInput(RemoteInputEvent event) {}
+            public void onRemoteText(String text) {}
             public void onNotificationOpen(long token) {}
             public void onAudioCapability(boolean supported) {}
         });

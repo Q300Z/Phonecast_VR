@@ -41,6 +41,7 @@ public:
     [[nodiscard]] std::uint64_t ImuDropped() const noexcept;
     [[nodiscard]] std::uint64_t ImuReceived() const noexcept;
     bool Send(const core::PointerEvent& event, std::string& error) override;
+    bool SendRemoteText(const std::string& text, std::string& error);
     bool SendNotificationOpen(std::uint64_t actionToken, std::string& error);
     // Drop queued prediction frames and ask the authenticated sender for a new
     // key frame without closing the stream or remote-input connection.

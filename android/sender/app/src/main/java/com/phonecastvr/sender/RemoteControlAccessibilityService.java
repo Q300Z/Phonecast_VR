@@ -52,6 +52,15 @@ public final class RemoteControlAccessibilityService extends AccessibilityServic
         return true;
     }
 
+    static boolean submitText(String text) {
+        RemoteControlAccessibilityService service = instance;
+        if (service == null || !service.getSharedPreferences(
+                ScreenCaptureService.PREFERENCES, MODE_PRIVATE)
+                .getBoolean(PREFERENCE_REMOTE_CONTROL, false)) return false;
+        service.getMainExecutor().execute(() -> service.handleText(text));
+        return true;
+    }
+
     @Override protected void onServiceConnected() {
         instance = this;
         ScreenCaptureService.remoteControlStatusChanged(this);
@@ -120,9 +129,59 @@ public final class RemoteControlAccessibilityService extends AccessibilityServic
                 performGlobalAction(GLOBAL_ACTION_BACK);
                 resetPointerGesture();
                 break;
+            case RemoteInputEvent.HOME:
+                performGlobalAction(GLOBAL_ACTION_HOME);
+                resetPointerGesture();
+                break;
+            case RemoteInputEvent.RECENTS:
+                performGlobalAction(GLOBAL_ACTION_RECENTS);
+                resetPointerGesture();
+                break;
             default:
                 break;
         }
+    }
+
+    private void handleText(String text) {
+        if (text == null) return;
+        android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
+        android.view.accessibility.AccessibilityNodeInfo focused =
+                root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT);
+        if (focused == null) {
+            focused = root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_ACCESSIBILITY);
+        }
+        if (focused == null) {
+            focused = findEditableNode(root);
+        }
+        if (focused != null) {
+            android.os.Bundle arguments = new android.os.Bundle();
+            arguments.putCharSequence(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    text);
+            focused.performAction(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
+                    arguments);
+            focused.recycle();
+        }
+        root.recycle();
+    }
+
+    private static android.view.accessibility.AccessibilityNodeInfo findEditableNode(
+            android.view.accessibility.AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        if (node.isEditable()) {
+            return android.view.accessibility.AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); ++i) {
+            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                android.view.accessibility.AccessibilityNodeInfo found = findEditableNode(child);
+                child.recycle();
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private void dispatchNextPointerSegment() {

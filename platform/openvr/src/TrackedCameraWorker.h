@@ -32,6 +32,15 @@ struct TrackedCameraPoseSnapshot {
     std::chrono::steady_clock::time_point timestamp{};
 };
 
+struct CameraFrameSnapshot {
+    bool valid{false};
+    uint32_t width{0};
+    uint32_t height{0};
+    std::vector<uint8_t> rgbaBuffer;
+    core::tracking::ScreenCorners2D corners{};
+    std::uint64_t sequence{0};
+};
+
 class TrackedCameraWorker final {
 public:
     // Production constructor using OpenVR IVRTrackedCamera API
@@ -53,6 +62,7 @@ public:
     // Lock-free read of latest pose snapshot for render thread (< 15 ns)
     bool GetLatestPose(::vr::HmdMatrix34_t& outTransform, float* outPhysicalWidth = nullptr);
     TrackedCameraPoseSnapshot GetSnapshot();
+    bool GetLatestCameraFrame(CameraFrameSnapshot& outSnapshot);
 
     void Stop() noexcept;
 
@@ -77,6 +87,7 @@ private:
     // Thread-safe snapshot output
     mutable std::mutex snapshotMutex_;
     TrackedCameraPoseSnapshot latestSnapshot_{};
+    CameraFrameSnapshot latestFrameSnapshot_{};
 
     // Tracking pipeline
     core::tracking::LineFitterRansac lineFitter_;

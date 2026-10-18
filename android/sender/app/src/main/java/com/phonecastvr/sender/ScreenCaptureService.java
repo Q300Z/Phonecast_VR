@@ -320,6 +320,12 @@ public final class ScreenCaptureService extends Service {
                     }
                 }
 
+                @Override public void onRemoteText(String text) {
+                    if (!RemoteControlAccessibilityService.submitText(text)) {
+                        Log.w(TAG, "Remote text ignored: enable PhoneCast remote control and its accessibility service");
+                    }
+                }
+
                 @Override public void onAudioCapability(boolean supported) {
                     mainHandler.post(() -> updateAudioCapability(supported));
                 }

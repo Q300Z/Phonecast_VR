@@ -1,0 +1,292 @@
+These controller type strings can be accessed by calling OpenVR.System.GetStringTrackedDeviceProperty with the associated device id. (0 should always be hmd)
+
+<table>
+  <tr>
+   <td><strong>Company</strong>
+   </td>
+   <td><strong>Device</strong>
+   </td>
+   <td><strong>Type</strong>
+   </td>
+   <td><strong>Controller Type</strong>
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Valve
+   </td>
+   <td>Index Controller
+   </td>
+   <td>Controller
+   </td>
+   <td>knuckles
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Valve
+   </td>
+   <td>Knuckles Devkits (ev2+)
+   </td>
+   <td>Controller
+   </td>
+   <td>knuckles
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Pro Controller
+   </td>
+   <td>Controller
+   </td>
+   <td>vive_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Controller
+   </td>
+   <td>Controller
+   </td>
+   <td>vive_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Controller (Pre)
+   </td>
+   <td>Controller
+   </td>
+   <td>vive_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Cosmos
+   </td>
+   <td>Controller
+   </td>
+   <td>vive_cosmos_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Tracker
+   </td>
+   <td>Controller(ish)
+   </td>
+   <td>vive_tracker[_role]
+   </td>
+   <td>vive trackers <strong>can </strong>have a role attached but don't have to. Ex: "handed, camera, chest, right_foot, left_foot"
+   </td>
+  </tr>
+  <tr>
+   <td>Oculus
+   </td>
+   <td>Touch (CV1)
+   </td>
+   <td>Controller
+   </td>
+   <td>oculus_touch
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Oculus
+   </td>
+   <td>Touch (Rift S)
+   </td>
+   <td>Controller
+   </td>
+   <td>oculus_touch
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Oculus
+   </td>
+   <td>Touch (Quest 1)
+   </td>
+   <td>Controller
+   </td>
+   <td>oculus_touch
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Oculus
+   </td>
+   <td>Touch (Quest 2)
+   </td>
+   <td>Controller
+   </td>
+   <td>oculus_touch
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Microsoft
+   </td>
+   <td>WinMR Devkit
+   </td>
+   <td>Controller
+   </td>
+   <td>holographic_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Samsung
+   </td>
+   <td>WinMR Odyssey+
+   </td>
+   <td>Controller
+   </td>
+   <td>holographic_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Misc
+   </td>
+   <td>WinMR Generic
+   </td>
+   <td>Controller
+   </td>
+   <td>holographic_controller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HP
+   </td>
+   <td>Reverb G2 Controller
+   </td>
+   <td>Controller
+   </td>
+   <td>hpmotioncontroller
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>
+   </td>
+   <td>
+   </td>
+   <td>
+   </td>
+   <td>
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Valve
+   </td>
+   <td>Index HMD
+   </td>
+   <td>Headset
+   </td>
+   <td>indexhmd
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive HMD
+   </td>
+   <td>Headset
+   </td>
+   <td>vive
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Pro HMD
+   </td>
+   <td>Headset
+   </td>
+   <td>vive_pro
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HTC
+   </td>
+   <td>Vive Cosmos HMD
+   </td>
+   <td>Headset
+   </td>
+   <td>vive_cosmos
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Oculus
+   </td>
+   <td>Rift
+   </td>
+   <td>Headset
+   </td>
+   <td>rift
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>Microsoft (Misc)
+   </td>
+   <td>WinMR Generic HMD
+   </td>
+   <td>Headset
+   </td>
+   <td>holographic_hmd
+   </td>
+   <td>
+   </td>
+  </tr>
+  <tr>
+   <td>HP
+   </td>
+   <td>Reverb G2
+   </td>
+   <td>Headset
+   </td>
+   <td>holographic_hmd
+   </td>
+   <td>
+   </td>
+  </tr>
+</table>

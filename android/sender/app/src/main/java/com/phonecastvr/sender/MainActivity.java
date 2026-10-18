@@ -158,9 +158,15 @@ public final class MainActivity extends Activity {
         page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
+        final int basePadLeft = dp(20);
+        final int basePadTop = dp(10);
+        final int basePadRight = dp(12);
+        final int basePadBottom = dp(10);
+        final int baseBodyPadBottom = dp(32);
+
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        toolbar.setPadding(dp(20), dp(10), dp(12), dp(10));
+        toolbar.setPadding(basePadLeft, basePadTop, basePadRight, basePadBottom);
         toolbar.setBackgroundColor(Color.rgb(11, 21, 34));
         screenTitleView = text("PhoneCast", 22, COLOR_TEXT, Gravity.START);
         toolbar.addView(screenTitleView, new LinearLayout.LayoutParams(0, dp(52), 1));
@@ -176,7 +182,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(20), dp(20), dp(20), dp(32));
+        body.setPadding(dp(20), dp(20), dp(20), baseBodyPadBottom);
         mainContent = new LinearLayout(this);
         mainContent.setOrientation(LinearLayout.VERTICAL);
         settingsContent = new LinearLayout(this);
@@ -192,6 +198,36 @@ public final class MainActivity extends Activity {
         scroll.addView(body);
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        page.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top = 0;
+            int left = 0;
+            int right = 0;
+            int bottom = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets cutoutAndStatus = insets.getInsets(
+                        android.view.WindowInsets.Type.statusBars() |
+                        android.view.WindowInsets.Type.displayCutout());
+                top = cutoutAndStatus.top;
+                left = cutoutAndStatus.left;
+                right = cutoutAndStatus.right;
+
+                android.graphics.Insets navAndIme = insets.getInsets(
+                        android.view.WindowInsets.Type.navigationBars() |
+                        android.view.WindowInsets.Type.ime());
+                bottom = navAndIme.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+
+            toolbar.setPadding(basePadLeft + left, basePadTop + top, basePadRight + right, basePadBottom);
+            body.setPadding(dp(20) + left, dp(20), dp(20) + right, baseBodyPadBottom + bottom);
+            return insets;
+        });
+
         setContentView(page);
     }
 

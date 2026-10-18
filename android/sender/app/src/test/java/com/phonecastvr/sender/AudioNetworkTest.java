@@ -17,6 +17,7 @@ public class AudioNetworkTest {
         @Override public void onConnectionChanged(boolean connected,String message) {}
         @Override public void onKeyFrameNeeded() {}
         @Override public void onRemoteInput(RemoteInputEvent event) {}
+        @Override public void onRemoteText(String text) {}
         @Override public void onNotificationOpen(long token) {}
         @Override public void onAudioCapability(boolean supported) { capable.set(supported); }
     }

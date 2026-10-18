@@ -27,6 +27,27 @@ bool OverlayInteractionController::IsBackButton(float overlayX, float overlayY) 
            overlayX < static_cast<float>(bottomInset_);
 }
 
+bool OverlayInteractionController::IsHomeButton(float overlayX, float overlayY) const noexcept {
+    const float left = static_cast<float>(bottomInset_);
+    const float right = static_cast<float>(bottomInset_ * 2U);
+    const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
+    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+}
+
+bool OverlayInteractionController::IsRecentsButton(float overlayX, float overlayY) const noexcept {
+    const float left = static_cast<float>(bottomInset_ * 2U);
+    const float right = static_cast<float>(bottomInset_ * 3U);
+    const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
+    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+}
+
+bool OverlayInteractionController::IsKeyboardButton(float overlayX, float overlayY) const noexcept {
+    const float left = static_cast<float>(bottomInset_ * 3U);
+    const float right = static_cast<float>(bottomInset_ * 4U);
+    const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
+    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+}
+
 bool OverlayInteractionController::IsCloseButton(float overlayX, float overlayY) const noexcept {
     return IsGrabHandle(overlayY) && overlayX >=
            static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U) &&
@@ -69,6 +90,12 @@ core::PointerEvent OverlayInteractionController::Scroll(float x, float y, float 
 }
 core::PointerEvent OverlayInteractionController::Back() noexcept {
     return Make(core::PointerEvent::Type::Back, 0.5F * width_, 0.5F * height_);
+}
+core::PointerEvent OverlayInteractionController::Home() noexcept {
+    return Make(core::PointerEvent::Type::Home, 0.5F * width_, 0.5F * height_);
+}
+core::PointerEvent OverlayInteractionController::Recents() noexcept {
+    return Make(core::PointerEvent::Type::Recents, 0.5F * width_, 0.5F * height_);
 }
 
 }  // namespace phonecast::vr

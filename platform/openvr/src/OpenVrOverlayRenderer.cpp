@@ -14,6 +14,7 @@
 #include <cmath>
 #include <deque>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,6 +47,8 @@ constexpr char kDashboardOverlayKey[] = "com.phonecastvr.receiver.dashboard";
 constexpr char kDashboardOverlayName[] = "PhoneCast";
 constexpr char kNotificationOverlayKey[] = "com.phonecastvr.receiver.notification";
 constexpr char kNotificationOverlayName[] = "PhoneCast Notification";
+constexpr char kPassthroughOverlayKey[] = "com.phonecastvr.receiver.passthrough";
+constexpr char kPassthroughOverlayName[] = "PhoneCast Passthrough Cutout";
 constexpr std::uint32_t kNotificationTextureWidth = 768;
 constexpr std::uint32_t kNotificationTextureHeight = 256;
 constexpr std::uint32_t kMenuTextureWidth = 512;
@@ -60,16 +63,28 @@ constexpr std::uint32_t kSettingsTextureHeight = 978;
 constexpr std::uint32_t kDashboardTextureWidth = 1024;
 constexpr std::uint32_t kDashboardTextureHeight = 600;
 constexpr std::uint32_t kDashboardThumbnailSize = 256;
-constexpr std::uint32_t kGrabHandleHeightPixels = 48;
+constexpr std::uint32_t kGrabHandleHeightPixels = 64;
 enum class DashboardControl {
     ToggleVisible,
     HeadLocked,
     WorldLocked,
+    PhoneTracked,
     AndroidBack,
     LeftControllerLocked,
     RightControllerLocked,
     OpenSettings,
     Quit
+};
+
+enum class FooterHoverTarget {
+    None,
+    Back,
+    Home,
+    Recents,
+    Keyboard,
+    Grab,
+    Close,
+    Resize
 };
 
 struct DashboardTarget {
@@ -84,13 +99,14 @@ struct DashboardTarget {
 // exposed here: Pin was visually identical to ordinary Expanded state, while
 // Glance only applied a smaller controller attachment and did not earn space in
 // the primary recovery panel during physical testing.
-constexpr std::array<DashboardTarget, 8> kDashboardTargets{{
+constexpr std::array<DashboardTarget, 9> kDashboardTargets{{
     {24, 136, 360, 174, DashboardControl::ToggleVisible},
-    {416, 156, 276, 92, DashboardControl::HeadLocked},
-    {708, 156, 276, 92, DashboardControl::WorldLocked},
+    {416, 156, 181, 72, DashboardControl::HeadLocked},
+    {609, 156, 181, 72, DashboardControl::WorldLocked},
+    {802, 156, 182, 72, DashboardControl::PhoneTracked},
     {24, 352, 0, 0, DashboardControl::AndroidBack},
-    {416, 264, 276, 92, DashboardControl::LeftControllerLocked},
-    {708, 264, 276, 92, DashboardControl::RightControllerLocked},
+    {416, 244, 278, 72, DashboardControl::LeftControllerLocked},
+    {706, 244, 278, 72, DashboardControl::RightControllerLocked},
     {416, 408, 376, 104, DashboardControl::OpenSettings},
     {808, 408, 176, 104, DashboardControl::Quit}
 }};
@@ -590,57 +606,130 @@ std::vector<std::uint8_t> MakeNotificationTexture(
     return image;
 }
 
-void AddGrabHandle(const phonecast::core::VideoFrame& frame,
-                   phonecast::core::VideoFrame& composite) {
-    composite.width = frame.width;
-    composite.height = frame.height + kGrabHandleHeightPixels;
-    composite.format = frame.format;
-    composite.sequence = frame.sequence;
-    composite.pixels.resize(static_cast<std::size_t>(composite.width) * composite.height * 4U);
-    std::copy(frame.pixels.begin(), frame.pixels.end(), composite.pixels.begin());
-
+void DrawGrabFooter(phonecast::core::VideoFrame& composite,
+                    std::uint32_t phoneHeight,
+                    FooterHoverTarget hover = FooterHoverTarget::None) {
     constexpr std::array<std::uint8_t, 4> background{8, 14, 24, 190};
     constexpr std::array<std::uint8_t, 4> separator{31, 147, 220, 220};
-    constexpr std::array<std::uint8_t, 4> handle{210, 230, 242, 235};
+    const std::array<std::uint8_t, 4> handle = hover == FooterHoverTarget::Grab
+        ? std::array<std::uint8_t, 4>{255, 255, 255, 255}
+        : std::array<std::uint8_t, 4>{210, 230, 242, 235};
     constexpr std::array<std::uint8_t, 4> footerButton{18, 35, 52, 205};
+    constexpr std::array<std::uint8_t, 4> footerButtonHover{48, 88, 132, 240};
+    constexpr std::array<std::uint8_t, 4> footerButtonCloseHover{160, 42, 54, 240};
     constexpr std::array<std::uint8_t, 4> footerIcon{245, 249, 255, 245};
-    const int phoneHeight = static_cast<int>(frame.height);
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneHeight,
+
+    const int phoneH = static_cast<int>(phoneHeight);
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
                   static_cast<int>(composite.width),
                   static_cast<int>(kGrabHandleHeightPixels), background);
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneHeight,
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
                   static_cast<int>(composite.width), 2, separator);
     const int handleWidth = std::max(64, std::min(220,
         static_cast<int>(composite.width * 3U / 10U)));
     constexpr int handleHeight = 10;
     FillImageRect(composite.pixels, composite.width, composite.height,
                   (static_cast<int>(composite.width) - handleWidth) / 2,
-                  phoneHeight + (static_cast<int>(kGrabHandleHeightPixels) - handleHeight) / 2,
+                  phoneH + (static_cast<int>(kGrabHandleHeightPixels) - handleHeight) / 2,
                   handleWidth, handleHeight, handle);
 
-    // The lower-left 48x48 region is a separate Android Back target. Keep the
-    // icon translucent so it remains recognizable without dominating the video.
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneHeight,
+    // The lower-left 64x64 region is a separate Android Back target.
+    const auto backBtnColor = hover == FooterHoverTarget::Back ? footerButtonHover : footerButton;
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
                   static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), footerButton);
-    const int centerX = static_cast<int>(kGrabHandleHeightPixels / 2U);
-    const int centerY = phoneHeight + static_cast<int>(kGrabHandleHeightPixels / 2U);
+                  static_cast<int>(kGrabHandleHeightPixels), backBtnColor);
+    const int centerY = phoneH + static_cast<int>(kGrabHandleHeightPixels / 2U);
+    const int backCenterX = static_cast<int>(kGrabHandleHeightPixels / 2U);
     for (int step = 0; step < 10; ++step) {
         for (int thickness = -2; thickness <= 2; ++thickness) {
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          centerX - 5 + step + thickness, centerY - step, footerIcon);
+                          backCenterX - 5 + step + thickness, centerY - step, footerIcon);
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          centerX - 5 + step + thickness, centerY + step, footerIcon);
+                          backCenterX - 5 + step + thickness, centerY + step, footerIcon);
         }
     }
 
-    // Keep Close beside Back so the lower-right corner can use the familiar
-    // panel-resize affordance.
+    // Android Home button (circle ◯) at [64, 128)
+    const int homeLeft = static_cast<int>(kGrabHandleHeightPixels);
+    if (homeLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
+        const auto homeBtnColor = hover == FooterHoverTarget::Home ? footerButtonHover : footerButton;
+        FillImageRect(composite.pixels, composite.width, composite.height, homeLeft, phoneH,
+                      static_cast<int>(kGrabHandleHeightPixels),
+                      static_cast<int>(kGrabHandleHeightPixels), homeBtnColor);
+        const int homeCenterX = homeLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
+        for (int dy = -9; dy <= 9; ++dy) {
+            for (int dx = -9; dx <= 9; ++dx) {
+                const int r2 = dx * dx + dy * dy;
+                if (r2 >= 42 && r2 <= 72) {
+                    SetImagePixel(composite.pixels, composite.width, composite.height,
+                                  homeCenterX + dx, centerY + dy, footerIcon);
+                }
+            }
+        }
+    }
+
+    // Android Recents button (square ▢) at [128, 192)
+    const int recentsLeft = static_cast<int>(kGrabHandleHeightPixels * 2U);
+    if (recentsLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
+        const auto recentsBtnColor = hover == FooterHoverTarget::Recents ? footerButtonHover : footerButton;
+        FillImageRect(composite.pixels, composite.width, composite.height, recentsLeft, phoneH,
+                      static_cast<int>(kGrabHandleHeightPixels),
+                      static_cast<int>(kGrabHandleHeightPixels), recentsBtnColor);
+        const int recentsCenterX = recentsLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
+        for (int step = -7; step <= 7; ++step) {
+            for (int thickness = -1; thickness <= 1; ++thickness) {
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              recentsCenterX + step, centerY - 7 + thickness, footerIcon);
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              recentsCenterX + step, centerY + 7 + thickness, footerIcon);
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              recentsCenterX - 7 + thickness, centerY + step, footerIcon);
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              recentsCenterX + 7 + thickness, centerY + step, footerIcon);
+            }
+        }
+    }
+
+    // SteamVR Virtual Keyboard button (⌨) at [192, 256)
+    const int kbLeft = static_cast<int>(kGrabHandleHeightPixels * 3U);
+    if (kbLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
+        const auto kbBtnColor = hover == FooterHoverTarget::Keyboard ? footerButtonHover : footerButton;
+        FillImageRect(composite.pixels, composite.width, composite.height, kbLeft, phoneH,
+                      static_cast<int>(kGrabHandleHeightPixels),
+                      static_cast<int>(kGrabHandleHeightPixels), kbBtnColor);
+        const int kbCenterX = kbLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
+        for (int step = -11; step <= 11; ++step) {
+            for (int thickness = -1; thickness <= 0; ++thickness) {
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              kbCenterX + step, centerY - 7 + thickness, footerIcon);
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              kbCenterX + step, centerY + 7 + thickness, footerIcon);
+            }
+        }
+        for (int step = -7; step <= 7; ++step) {
+            for (int thickness = -1; thickness <= 0; ++thickness) {
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              kbCenterX - 11 + thickness, centerY + step, footerIcon);
+                SetImagePixel(composite.pixels, composite.width, composite.height,
+                              kbCenterX + 11 + thickness, centerY + step, footerIcon);
+            }
+        }
+        for (int kx : {-7, -3, 1, 5, 8}) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY - 2, footerIcon);
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx + 1, centerY - 2, footerIcon);
+        }
+        for (int kx = -5; kx <= 5; ++kx) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY + 3, footerIcon);
+        }
+    }
+
+    // Keep Close beside Back so the lower-right corner can use the panel-resize affordance.
     const int closeLeft = std::max(0, static_cast<int>(composite.width) -
         static_cast<int>(kGrabHandleHeightPixels * 2U));
+    const auto closeBtnColor = hover == FooterHoverTarget::Close ? footerButtonCloseHover : footerButton;
     FillImageRect(composite.pixels, composite.width, composite.height,
-                  closeLeft, phoneHeight, static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), footerButton);
+                  closeLeft, phoneH, static_cast<int>(kGrabHandleHeightPixels),
+                  static_cast<int>(kGrabHandleHeightPixels), closeBtnColor);
     const int closeX = closeLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
     for (int step = -7; step <= 7; ++step) {
         for (int thickness = -1; thickness <= 1; ++thickness) {
@@ -653,11 +742,12 @@ void AddGrabHandle(const phonecast::core::VideoFrame& frame,
 
     const int resizeLeft = std::max(0, static_cast<int>(composite.width) -
                                        static_cast<int>(kGrabHandleHeightPixels));
+    const auto resizeBtnColor = hover == FooterHoverTarget::Resize ? footerButtonHover : footerButton;
     FillImageRect(composite.pixels, composite.width, composite.height,
-                  resizeLeft, phoneHeight, static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), footerButton);
+                  resizeLeft, phoneH, static_cast<int>(kGrabHandleHeightPixels),
+                  static_cast<int>(kGrabHandleHeightPixels), resizeBtnColor);
     const int resizeRight = resizeLeft + static_cast<int>(kGrabHandleHeightPixels) - 10;
-    const int resizeBottom = phoneHeight + static_cast<int>(kGrabHandleHeightPixels) - 10;
+    const int resizeBottom = phoneH + static_cast<int>(kGrabHandleHeightPixels) - 10;
     for (int step = 0; step < 18; ++step) {
         for (int thickness = 0; thickness < 3; ++thickness) {
             SetImagePixel(composite.pixels, composite.width, composite.height,
@@ -668,13 +758,27 @@ void AddGrabHandle(const phonecast::core::VideoFrame& frame,
     }
 }
 
+void AddGrabHandle(const phonecast::core::VideoFrame& frame,
+                   phonecast::core::VideoFrame& composite,
+                   FooterHoverTarget hover = FooterHoverTarget::None) {
+    composite.width = frame.width;
+    composite.height = frame.height + kGrabHandleHeightPixels;
+    composite.format = frame.format;
+    composite.sequence = frame.sequence;
+    composite.pixels.resize(static_cast<std::size_t>(composite.width) * composite.height * 4U);
+    std::copy(frame.pixels.begin(), frame.pixels.end(), composite.pixels.begin());
+    DrawGrabFooter(composite, frame.height, hover);
+}
+
 std::vector<std::uint8_t> MakeDashboardTexture(
         bool currentlyVisible, phonecast::vr::PlacementMode placementMode,
         bool remoteStatusKnown, bool remoteAppEnabled,
-        bool remoteAccessibilityEnabled, const std::string& pairingCode) {
+        bool remoteAccessibilityEnabled, const std::string& pairingCode,
+        int hoveredCell = -1) {
     constexpr std::array<std::uint8_t, 4> background{10, 25, 42, 255};
     constexpr std::array<std::uint8_t, 4> header{10, 24, 40, 255};
     constexpr std::array<std::uint8_t, 4> card{27, 49, 76, 255};
+    constexpr std::array<std::uint8_t, 4> cardHover{42, 74, 112, 255};
     constexpr std::array<std::uint8_t, 4> primary{48, 153, 245, 255};
     constexpr std::array<std::uint8_t, 4> text{224, 235, 249, 255};
     constexpr std::array<std::uint8_t, 4> secondary{161, 184, 211, 255};
@@ -701,8 +805,10 @@ std::vector<std::uint8_t> MakeDashboardTexture(
                    891, 51, 2, currentlyVisible ? primary : warning);
 
     const auto& show = kDashboardTargets[0];
+    const bool showHovered = hoveredCell == 0;
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         show.left, show.top, show.width, show.height, 22, card);
+                         show.left, show.top, show.width, show.height, 22,
+                         showHovered ? cardHover : card);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    currentlyVisible ? "HIDE PHONE" : "SHOW PHONE",
                    show.left + show.width / 2, show.top + 70, 4, text);
@@ -712,19 +818,21 @@ std::vector<std::uint8_t> MakeDashboardTexture(
 
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    "PLACEMENT", 490, 126, 2, secondary);
-    constexpr std::array<const char*, 4> placementLabels{
-        "HEAD", "WORLD", "LEFT DOCK", "RIGHT DOCK"};
-    constexpr std::array<std::size_t, 4> placementTargets{1, 2, 4, 5};
+    constexpr std::array<const char*, 5> placementLabels{
+        "HEAD", "WORLD", "PHONE TRACK", "LEFT DOCK", "RIGHT DOCK"};
+    constexpr std::array<std::size_t, 5> placementTargets{1, 2, 3, 5, 6};
     for (std::size_t index = 0; index < placementTargets.size(); ++index) {
         const auto& target = kDashboardTargets[placementTargets[index]];
         const bool selected =
             (index == 0 && placementMode == phonecast::vr::PlacementMode::HeadLocked) ||
             (index == 1 && placementMode == phonecast::vr::PlacementMode::WorldLocked) ||
-            (index == 2 && placementMode == phonecast::vr::PlacementMode::LeftControllerLocked) ||
-            (index == 3 && placementMode == phonecast::vr::PlacementMode::RightControllerLocked);
+            (index == 2 && placementMode == phonecast::vr::PlacementMode::PhoneTracked) ||
+            (index == 3 && placementMode == phonecast::vr::PlacementMode::LeftControllerLocked) ||
+            (index == 4 && placementMode == phonecast::vr::PlacementMode::RightControllerLocked);
+        const bool hovered = hoveredCell >= 0 && static_cast<std::size_t>(hoveredCell) == placementTargets[index];
         FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
                              target.left, target.top, target.width, target.height, 16,
-                             selected ? primary : card);
+                             selected ? primary : (hovered ? cardHover : card));
         DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                        placementLabels[index], target.left + target.width / 2,
                        target.top + target.height / 2,
@@ -740,12 +848,16 @@ std::vector<std::uint8_t> MakeDashboardTexture(
                    "TOGGLE PHONE", 204, 414, 2, secondary);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    "DOUBLE CLICK DOCK", 204, 446, 2, secondary);
-    const auto& settings = kDashboardTargets[6];
-    const auto& quit = kDashboardTargets[7];
+    const auto& settings = kDashboardTargets[7];
+    const auto& quit = kDashboardTargets[8];
+    const bool settingsHovered = hoveredCell == 7;
+    const bool quitHovered = hoveredCell == 8;
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         settings.left, settings.top, settings.width, settings.height, 18, card);
+                         settings.left, settings.top, settings.width, settings.height, 18,
+                         settingsHovered ? cardHover : card);
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         quit.left, quit.top, quit.width, quit.height, 18, card);
+                         quit.left, quit.top, quit.width, quit.height, 18,
+                         quitHovered ? cardHover : card);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    "SETTINGS", settings.left + settings.width / 2,
                    settings.top + settings.height / 2, 3, text);
@@ -905,6 +1017,7 @@ public:
             logger.Log(core::LogLevel::Warning, "openvr-shortcut", "Shortcut/panel action initialization failed.");
             return;
         }
+        inputApi->GetActionHandle("/actions/phonecast_shortcuts/out/haptic", &shortcutHaptic);
         shortcutReady = true;
         logger.Log(core::LogLevel::Info, "openvr-shortcut",
                    "Both-stick hold toggles and double-click docking initialized at normal priority.");
@@ -959,7 +1072,8 @@ public:
         if (dashboardOverlay == vr::k_ulOverlayHandleInvalid) return;
         auto image = MakeDashboardTexture(desiredVisible, currentSettings.placementMode,
                                            remoteStatusKnown, remoteAppEnabled,
-                                           remoteAccessibilityEnabled, pairingCode);
+                                           remoteAccessibilityEnabled, pairingCode,
+                                           hoveredDashboardCell);
         const auto result = overlayApi->SetOverlayRaw(
             dashboardOverlay, image.data(), kDashboardTextureWidth, kDashboardTextureHeight, 4);
         if (result != vr::VROverlayError_None)
@@ -1060,7 +1174,8 @@ public:
             dashboardOverlay,
             MakeDashboardTexture(desiredVisible, currentSettings.placementMode,
                                  remoteStatusKnown, remoteAppEnabled,
-                                 remoteAccessibilityEnabled, pairingCode).data(),
+                                 remoteAccessibilityEnabled, pairingCode,
+                                 hoveredDashboardCell).data(),
             kDashboardTextureWidth, kDashboardTextureHeight, 4);
         const auto thumbnailResult = overlayApi->SetOverlayRaw(
             dashboardThumbnail, thumbnail.data(),
@@ -1128,6 +1243,9 @@ public:
                 break;
             case DashboardControl::WorldLocked:
                 pendingRadialMenuSelection.action = phonecast::vr::RadialMenuAction::WorldLocked;
+                break;
+            case DashboardControl::PhoneTracked:
+                pendingRadialMenuSelection.action = phonecast::vr::RadialMenuAction::PhoneTracked;
                 break;
             case DashboardControl::LeftControllerLocked:
                 pendingRadialMenuSelection.action = phonecast::vr::RadialMenuAction::LeftControllerLocked;
@@ -1269,6 +1387,10 @@ public:
         if (cameraWorker) {
             cameraWorker->SetActive(settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked);
         }
+        if (settings.placementMode != phonecast::vr::PlacementMode::PhoneTracked &&
+            passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+            overlayApi->HideOverlay(passthroughOverlay);
+        }
 
         const float placementScale = IsControllerMode(settings.placementMode)
             ? ControllerFor(settings).scale : 1.0F;
@@ -1329,6 +1451,75 @@ public:
         return true;
     }
 
+    void UpdatePassthroughCutout(const vr::HmdMatrix34_t& phoneTransform, float physicalWidthMeters) {
+        if (passthroughOverlay == vr::k_ulOverlayHandleInvalid || !cameraWorker) return;
+        CameraFrameSnapshot camSnapshot{};
+        if (!cameraWorker->GetLatestCameraFrame(camSnapshot) || camSnapshot.rgbaBuffer.empty() ||
+            camSnapshot.width == 0 || camSnapshot.height == 0) {
+            return;
+        }
+
+        float minX = static_cast<float>(camSnapshot.width) * 0.25F;
+        float maxX = static_cast<float>(camSnapshot.width) * 0.75F;
+        float minY = static_cast<float>(camSnapshot.height) * 0.25F;
+        float maxY = static_cast<float>(camSnapshot.height) * 0.75F;
+
+        if (camSnapshot.corners.valid) {
+            minX = std::min({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
+                             camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
+            maxX = std::max({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
+                             camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
+            minY = std::min({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
+                             camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
+            maxY = std::max({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
+                             camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
+        }
+
+        const float screenW = std::max(10.0F, maxX - minX);
+        const float screenH = std::max(10.0F, maxY - minY);
+        const float marginX = screenW * 0.40F;
+        const float marginY = screenH * 0.45F;
+
+        const int cropLeft = std::max(0, static_cast<int>(minX - marginX));
+        const int cropRight = std::min(static_cast<int>(camSnapshot.width), static_cast<int>(maxX + marginX));
+        const int cropTop = std::max(0, static_cast<int>(minY - marginY * 0.3F));
+        const int cropBottom = std::min(static_cast<int>(camSnapshot.height), static_cast<int>(maxY + marginY));
+
+        const int cropW = cropRight - cropLeft;
+        const int cropH = cropBottom - cropTop;
+        if (cropW <= 32 || cropH <= 32) return;
+
+        std::vector<uint8_t> cutout(static_cast<std::size_t>(cropW) * cropH * 4U);
+        constexpr int feather = 18;
+
+        for (int y = 0; y < cropH; ++y) {
+            const int srcY = cropTop + y;
+            const uint8_t* srcRow = camSnapshot.rgbaBuffer.data() +
+                                    (static_cast<std::size_t>(srcY) * camSnapshot.width + cropLeft) * 4U;
+            uint8_t* dstRow = cutout.data() + (static_cast<std::size_t>(y) * cropW) * 4U;
+
+            for (int x = 0; x < cropW; ++x) {
+                const int distEdge = std::min({x, cropW - 1 - x, y, cropH - 1 - y});
+                float alphaFactor = 1.0F;
+                if (distEdge < feather) {
+                    alphaFactor = static_cast<float>(distEdge) / static_cast<float>(feather);
+                }
+
+                dstRow[x * 4 + 0] = srcRow[x * 4 + 0];
+                dstRow[x * 4 + 1] = srcRow[x * 4 + 1];
+                dstRow[x * 4 + 2] = srcRow[x * 4 + 2];
+                dstRow[x * 4 + 3] = static_cast<uint8_t>(255.0F * alphaFactor);
+            }
+        }
+
+        overlayApi->SetOverlayRaw(passthroughOverlay, cutout.data(), cropW, cropH, 4);
+        const float scaleFactor = static_cast<float>(cropW) / screenW;
+        const float passthroughWidth = physicalWidthMeters > 0.0F ? (physicalWidthMeters * scaleFactor) : 0.12F;
+        overlayApi->SetOverlayWidthInMeters(passthroughOverlay, passthroughWidth);
+        overlayApi->SetOverlayTransformAbsolute(passthroughOverlay, vr::TrackingUniverseStanding, &phoneTransform);
+        overlayApi->ShowOverlay(passthroughOverlay);
+    }
+
     void UpdateControllerPlacement() {
         if (grabbedDevice != vr::k_unTrackedDeviceIndexInvalid) return;
         if (currentSettings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
@@ -1340,8 +1531,12 @@ public:
                     overlayApi->SetOverlayWidthInMeters(overlay, physicalWidthMeters);
                 }
                 overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
+                UpdatePassthroughCutout(transform, physicalWidthMeters);
             }
             return;
+        }
+        if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+            overlayApi->HideOverlay(passthroughOverlay);
         }
         if (!IsControllerMode(currentSettings.placementMode)) return;
         vr::HmdMatrix34_t transform{};
@@ -1750,7 +1945,35 @@ public:
             vr::VROverlayError_None;
     }
 
-    vr::TrackedDeviceIndex_t ResolvePointerDevice(vr::TrackedDeviceIndex_t device) const {
+    void TriggerHaptic(vr::VROverlayHandle_t targetOverlay, float durationSeconds,
+                       float frequency, float amplitude,
+                       vr::TrackedDeviceIndex_t device = vr::k_unTrackedDeviceIndexInvalid) {
+        if (overlayApi != nullptr && targetOverlay != vr::k_ulOverlayHandleInvalid) {
+            overlayApi->TriggerLaserMouseHapticVibration(targetOverlay, durationSeconds, frequency, amplitude);
+        }
+        if (inputApi != nullptr && shortcutHaptic != vr::k_ulInvalidActionHandle) {
+            inputApi->TriggerHapticVibrationAction(
+                shortcutHaptic, 0.0F, durationSeconds, frequency, amplitude, vr::k_ulInvalidInputValueHandle);
+        } else if (system != nullptr && device < vr::k_unMaxTrackedDeviceCount) {
+            const auto us = static_cast<unsigned short>(
+                std::max(0.0F, std::min(65535.0F, durationSeconds * 1e6F * amplitude)));
+            if (us > 0) {
+                system->TriggerHapticPulse(device, 0, us);
+            }
+        }
+    }
+
+    void UpdateFooterHover(FooterHoverTarget hover) {
+        if (!hasFrame || compositeFrame.pixels.empty() || compositeFrame.height <= kGrabHandleHeightPixels) return;
+        const auto phoneHeight = compositeFrame.height - kGrabHandleHeightPixels;
+        DrawGrabFooter(compositeFrame, phoneHeight, hover);
+        overlayApi->SetOverlayRaw(overlay, compositeFrame.pixels.data(),
+                                  compositeFrame.width, compositeFrame.height, 4);
+    }
+
+    vr::TrackedDeviceIndex_t ResolvePointerDevice(
+            vr::TrackedDeviceIndex_t device,
+            vr::VROverlayHandle_t targetOverlay = vr::k_ulOverlayHandleInvalid) const {
         const auto valid = [&](vr::TrackedDeviceIndex_t candidate) {
             return candidate < vr::k_unMaxTrackedDeviceCount &&
                 system->GetTrackedDeviceClass(candidate) == vr::TrackedDeviceClass_Controller;
@@ -1758,18 +1981,77 @@ public:
         if (valid(device)) return device;
         device = overlayApi->GetPrimaryDashboardDevice();
         if (valid(device)) return device;
-        for (const auto role : {vr::TrackedControllerRole_LeftHand, vr::TrackedControllerRole_RightHand}) {
+
+        const auto testOverlay = targetOverlay != vr::k_ulOverlayHandleInvalid ? targetOverlay : overlay;
+        vr::TrackedDeviceIndex_t bestCandidate = vr::k_unTrackedDeviceIndexInvalid;
+        float bestDistance = std::numeric_limits<float>::max();
+
+        if (testOverlay != vr::k_ulOverlayHandleInvalid) {
+            for (const auto role : {vr::TrackedControllerRole_RightHand, vr::TrackedControllerRole_LeftHand}) {
+                const auto candidate = system->GetTrackedDeviceIndexForControllerRole(role);
+                if (!valid(candidate)) continue;
+                vr::HmdMatrix34_t pose{};
+                if (!DevicePose(candidate, pose)) continue;
+
+                vr::VROverlayIntersectionParams_t params{};
+                params.eOrigin = vr::TrackingUniverseStanding;
+                params.vSource = {pose.m[0][3], pose.m[1][3], pose.m[2][3]};
+                params.vDirection = {-pose.m[0][2], -pose.m[1][2], -pose.m[2][2]};
+                vr::VROverlayIntersectionResults_t results{};
+                if (overlayApi->ComputeOverlayIntersection(testOverlay, &params, &results)) {
+                    if (results.fDistance < bestDistance) {
+                        bestDistance = results.fDistance;
+                        bestCandidate = candidate;
+                    }
+                }
+            }
+        }
+        if (bestCandidate != vr::k_unTrackedDeviceIndexInvalid) return bestCandidate;
+
+        vr::HmdMatrix34_t overlayPose{};
+        if (testOverlay != vr::k_ulOverlayHandleInvalid &&
+            AbsoluteForSettings(currentSettings, overlayPose)) {
+            float bestAlignment = 0.0F;
+            for (const auto role : {vr::TrackedControllerRole_RightHand, vr::TrackedControllerRole_LeftHand}) {
+                const auto candidate = system->GetTrackedDeviceIndexForControllerRole(role);
+                if (!valid(candidate)) continue;
+                vr::HmdMatrix34_t pose{};
+                if (!DevicePose(candidate, pose)) continue;
+
+                const float posX = pose.m[0][3];
+                const float posY = pose.m[1][3];
+                const float posZ = pose.m[2][3];
+                const float fwdX = -pose.m[0][2];
+                const float fwdY = -pose.m[1][2];
+                const float fwdZ = -pose.m[2][2];
+
+                float toTargetX = overlayPose.m[0][3] - posX;
+                float toTargetY = overlayPose.m[1][3] - posY;
+                float toTargetZ = overlayPose.m[2][3] - posZ;
+                const float dist = std::sqrt(toTargetX * toTargetX + toTargetY * toTargetY + toTargetZ * toTargetZ);
+                if (dist > 0.001F) {
+                    toTargetX /= dist;
+                    toTargetY /= dist;
+                    toTargetZ /= dist;
+                    const float alignment = fwdX * toTargetX + fwdY * toTargetY + fwdZ * toTargetZ;
+                    if (alignment > bestAlignment) {
+                        bestAlignment = alignment;
+                        bestCandidate = candidate;
+                    }
+                }
+            }
+        }
+        if (bestCandidate != vr::k_unTrackedDeviceIndexInvalid) return bestCandidate;
+
+        for (const auto role : {vr::TrackedControllerRole_RightHand, vr::TrackedControllerRole_LeftHand}) {
             const auto candidate = system->GetTrackedDeviceIndexForControllerRole(role);
-            vr::VRControllerState_t state{};
-            if (valid(candidate) && system->GetControllerState(candidate, &state, sizeof(state)) &&
-                (state.ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger)))
-                return candidate;
+            if (valid(candidate)) return candidate;
         }
         return vr::k_unTrackedDeviceIndexInvalid;
     }
 
     void BeginSettingsGrab(vr::TrackedDeviceIndex_t device) {
-        device = ResolvePointerDevice(device);
+        device = ResolvePointerDevice(device, settingsOverlay);
         vr::HmdMatrix34_t controllerPose{};
         if (!DevicePose(device, controllerPose) || !settingsWorldTransformValid) return;
         settingsGrabRelative = Multiply(InverseRigid(controllerPose), settingsWorldTransform);
@@ -2009,10 +2291,11 @@ public:
 
     void QueueDragScroll(const vr::VREvent_t& event, bool settings) {
         const auto owner = settings ? settingsGrabbedDevice : grabbedDevice;
-        if (owner == vr::k_unTrackedDeviceIndexInvalid || !overlayApi->IsDashboardVisible()) return;
+        if (owner == vr::k_unTrackedDeviceIndexInvalid) return;
         auto& scroll = settings ? settingsDepthScroll : phoneDepthScroll;
+        const auto activeDevice = ResolvePointerDevice(event.trackedDeviceIndex, settings ? settingsOverlay : overlay);
         scroll.Add(event.data.scroll.ydelta, event.eventType == vr::VREvent_ScrollSmooth,
-                   ResolvePointerDevice(event.trackedDeviceIndex) == owner);
+                   activeDevice == owner || activeDevice == vr::k_unTrackedDeviceIndexInvalid);
     }
 
     void LogDragScroll(const char* panel, const phonecast::vr::PanelDepthScroll& scroll) {
@@ -2049,7 +2332,7 @@ public:
     }
 
     void BeginGrab(vr::TrackedDeviceIndex_t device) {
-        device = ResolvePointerDevice(device);
+        device = ResolvePointerDevice(device, overlay);
         vr::HmdMatrix34_t controllerPose{};
         vr::HmdMatrix34_t overlayPose{};
         if (!DevicePose(device, controllerPose) || !AbsoluteForSettings(currentSettings, overlayPose)) return;
@@ -2160,8 +2443,18 @@ public:
     vr::VROverlayHandle_t gestureOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t settingsOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t notificationOverlay{vr::k_ulOverlayHandleInvalid};
+    vr::VROverlayHandle_t passthroughOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t dashboardOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t dashboardThumbnail{vr::k_ulOverlayHandleInvalid};
+    std::deque<std::string> pendingTextQueue;
+    std::mutex textQueueMutex;
+
+    void QueueTextEntered(std::string text) {
+        std::lock_guard<std::mutex> lock(textQueueMutex);
+        if (pendingTextQueue.size() < 16) {
+            pendingTextQueue.push_back(std::move(text));
+        }
+    }
     bool startLocationPreviewVisible{false};
     vr::HmdMatrix34_t startPreviewHead{};
     bool gestureProgressVisible{false};
@@ -2201,6 +2494,9 @@ public:
     vr::VRActionHandle_t shortcutToggleRight{vr::k_ulInvalidActionHandle};
     vr::VRActionHandle_t shortcutDockLeft{vr::k_ulInvalidActionHandle};
     vr::VRActionHandle_t shortcutDockRight{vr::k_ulInvalidActionHandle};
+    vr::VRActionHandle_t shortcutHaptic{vr::k_ulInvalidActionHandle};
+    int hoveredDashboardCell{-1};
+    FooterHoverTarget currentFooterHover{FooterHoverTarget::None};
     bool wasDashboardVisible{false};
     bool shortcutReady{false};
     bool shortcutActive{false};
@@ -2348,7 +2644,17 @@ bool OpenVrOverlayRenderer::Start(const phonecast::vr::OverlaySettings& settings
                             "Set notification sort order", error) ||
         !impl_->OverlayCall(impl_->overlayApi->SetOverlayInputMethod(
                                 impl_->notificationOverlay, vr::VROverlayInputMethod_Mouse),
-                            "Set notification input method", error)) {
+                            "Set notification input method", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->CreateOverlay(
+                                kPassthroughOverlayKey, kPassthroughOverlayName,
+                                &impl_->passthroughOverlay),
+                            "Create passthrough overlay", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlayAlpha(
+                                impl_->passthroughOverlay, 1.0F),
+                            "Set passthrough alpha", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlaySortOrder(
+                                impl_->passthroughOverlay, 90U),
+                            "Set passthrough sort order", error)) {
         Stop();
         return false;
     }
@@ -2430,7 +2736,7 @@ bool OpenVrOverlayRenderer::SubmitFrame(const core::VideoFrame& frame, std::stri
         error = "Cannot submit an invalid RGBA frame.";
         return false;
     }
-    AddGrabHandle(frame, impl_->compositeFrame);
+    AddGrabHandle(frame, impl_->compositeFrame, impl_->currentFooterHover);
     const auto& composite = impl_->compositeFrame;
 #ifdef _WIN32
     if (!impl_->EnsureTexture(composite.width, composite.height, error)) return false;
@@ -2484,10 +2790,15 @@ bool OpenVrOverlayRenderer::SetVisible(bool visible, std::string& error) {
         if (!impl_->OverlayCall(impl_->overlayApi->ShowOverlay(impl_->overlay),
                                 "ShowOverlay", error)) return false;
         impl_->shown = true;
-    } else if (!visible && impl_->shown) {
-        if (!impl_->OverlayCall(impl_->overlayApi->HideOverlay(impl_->overlay),
-                                "HideOverlay", error)) return false;
-        impl_->shown = false;
+    } else if (!visible) {
+        if (impl_->shown) {
+            if (!impl_->OverlayCall(impl_->overlayApi->HideOverlay(impl_->overlay),
+                                    "HideOverlay", error)) return false;
+            impl_->shown = false;
+        }
+        if (impl_->passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+            impl_->overlayApi->HideOverlay(impl_->passthroughOverlay);
+        }
     }
     error.clear();
     return true;
@@ -2567,10 +2878,26 @@ bool OpenVrOverlayRenderer::PumpEvents() {
     while (impl_->dashboardOverlay != vr::k_ulOverlayHandleInvalid &&
            impl_->overlayApi->PollNextOverlayEvent(
                impl_->dashboardOverlay, &event, sizeof(event))) {
-        if (event.eventType == vr::VREvent_MouseButtonDown &&
+        if (event.eventType == vr::VREvent_MouseMove) {
+            const int cell = DashboardCell(event.data.mouse.x, event.data.mouse.y);
+            if (cell != impl_->hoveredDashboardCell) {
+                impl_->hoveredDashboardCell = cell;
+                if (cell >= 0) {
+                    impl_->TriggerHaptic(impl_->dashboardOverlay, 0.015F, 50.0F, 0.25F, event.trackedDeviceIndex);
+                }
+                impl_->RenderDashboard();
+            }
+        } else if (event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            impl_->TriggerHaptic(impl_->dashboardOverlay, 0.03F, 80.0F, 0.6F, event.trackedDeviceIndex);
             impl_->QueueDashboardCell(
                 DashboardCell(event.data.mouse.x, event.data.mouse.y));
+        } else if (event.eventType == vr::VREvent_FocusLeave ||
+                   event.eventType == vr::VREvent_OverlayHidden) {
+            if (impl_->hoveredDashboardCell != -1) {
+                impl_->hoveredDashboardCell = -1;
+                impl_->RenderDashboard();
+            }
         }
         if (IsQuitEvent(event.eventType)) {
             impl_->logger.Log(core::LogLevel::Info, "openvr",
@@ -2599,6 +2926,7 @@ bool OpenVrOverlayRenderer::PumpEvents() {
             impl_->EndSettingsGrab(impl_->settingsGrabbedDevice);
         } else if (event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            impl_->TriggerHaptic(impl_->settingsOverlay, 0.025F, 70.0F, 0.5F, event.trackedDeviceIndex);
             if (impl_->IsSettingsGrabHandle(event.data.mouse.y))
                 impl_->BeginSettingsGrab(event.trackedDeviceIndex);
             else
@@ -2642,13 +2970,43 @@ bool OpenVrOverlayRenderer::PumpEvents() {
                 impl_->pointerDown = false;
             }
             impl_->backButtonDown = false;
+            if (impl_->currentFooterHover != FooterHoverTarget::None) {
+                impl_->currentFooterHover = FooterHoverTarget::None;
+                impl_->UpdateFooterHover(FooterHoverTarget::None);
+            }
         } else if (!impl_->calibrationActive && event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            impl_->TriggerHaptic(impl_->overlay, 0.025F, 70.0F, 0.5F, event.trackedDeviceIndex);
             if (impl_->interaction.IsBackButton(event.data.mouse.x, event.data.mouse.y)) {
                 impl_->backButtonDown = true;
                 impl_->QueuePointer(impl_->interaction.Back());
                 impl_->logger.Log(core::LogLevel::Info, "openvr-input",
                                   "Android Back requested from the overlay button.");
+            } else if (impl_->interaction.IsHomeButton(event.data.mouse.x, event.data.mouse.y)) {
+                impl_->backButtonDown = true;
+                impl_->QueuePointer(impl_->interaction.Home());
+                impl_->logger.Log(core::LogLevel::Info, "openvr-input",
+                                  "Android Home requested from the overlay button.");
+            } else if (impl_->interaction.IsRecentsButton(event.data.mouse.x, event.data.mouse.y)) {
+                impl_->backButtonDown = true;
+                impl_->QueuePointer(impl_->interaction.Recents());
+                impl_->logger.Log(core::LogLevel::Info, "openvr-input",
+                                  "Android Recents requested from the overlay button.");
+            } else if (impl_->interaction.IsKeyboardButton(event.data.mouse.x, event.data.mouse.y)) {
+                impl_->backButtonDown = true;
+                if (impl_->overlayApi) {
+                    impl_->overlayApi->ShowKeyboardForOverlay(
+                        impl_->overlay,
+                        vr::k_EGamepadTextInputModeNormal,
+                        vr::k_EGamepadTextInputLineModeSingleLine,
+                        vr::KeyboardFlag_Modal,
+                        "PhoneCast Keyboard",
+                        1024,
+                        "",
+                        0);
+                    impl_->logger.Log(core::LogLevel::Info, "openvr-input",
+                                      "SteamVR virtual keyboard requested.");
+                }
             } else if (impl_->interaction.IsCloseButton(
                            event.data.mouse.x, event.data.mouse.y)) {
                 impl_->backButtonDown = true;
@@ -2675,6 +3033,39 @@ bool OpenVrOverlayRenderer::PumpEvents() {
             } else if (impl_->pointerDown) {
                 impl_->QueuePointer(impl_->interaction.PointerMove(
                     event.data.mouse.x, event.data.mouse.y));
+            } else if (impl_->interaction.IsGrabHandle(event.data.mouse.y)) {
+                FooterHoverTarget target = FooterHoverTarget::Grab;
+                if (impl_->interaction.IsBackButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Back;
+                } else if (impl_->interaction.IsHomeButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Home;
+                } else if (impl_->interaction.IsRecentsButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Recents;
+                } else if (impl_->interaction.IsKeyboardButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Keyboard;
+                } else if (impl_->interaction.IsCloseButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Close;
+                } else if (impl_->interaction.IsResizeButton(event.data.mouse.x, event.data.mouse.y)) {
+                    target = FooterHoverTarget::Resize;
+                }
+                if (target != impl_->currentFooterHover) {
+                    impl_->currentFooterHover = target;
+                    impl_->TriggerHaptic(impl_->overlay, 0.015F, 50.0F, 0.25F, event.trackedDeviceIndex);
+                    impl_->UpdateFooterHover(target);
+                }
+            } else {
+                if (impl_->currentFooterHover != FooterHoverTarget::None) {
+                    impl_->currentFooterHover = FooterHoverTarget::None;
+                    impl_->UpdateFooterHover(FooterHoverTarget::None);
+                }
+            }
+        } else if (event.eventType == vr::VREvent_KeyboardDone) {
+            char textBuffer[4096] = {0};
+            const uint32_t len = impl_->overlayApi->GetKeyboardText(textBuffer, sizeof(textBuffer));
+            if (len > 0) {
+                impl_->QueueTextEntered(std::string(textBuffer));
+                impl_->logger.Log(core::LogLevel::Info, "openvr-keyboard",
+                                  "SteamVR keyboard text forwarded.");
             }
         } else if (!impl_->calibrationActive && event.eventType == vr::VREvent_MouseButtonUp &&
                    (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
@@ -2860,6 +3251,14 @@ bool OpenVrOverlayRenderer::TakePointerEvent(core::PointerEvent& event) {
     return true;
 }
 
+bool OpenVrOverlayRenderer::TakeTextEntered(std::string& text) {
+    std::lock_guard<std::mutex> lock(impl_->textQueueMutex);
+    if (impl_->pendingTextQueue.empty()) return false;
+    text = std::move(impl_->pendingTextQueue.front());
+    impl_->pendingTextQueue.pop_front();
+    return true;
+}
+
 bool OpenVrOverlayRenderer::ShowNotification(
         const core::protocol::NotificationEvent& notification, std::string& error) {
     if (impl_->overlayApi == nullptr ||
@@ -2958,6 +3357,10 @@ void OpenVrOverlayRenderer::Stop() noexcept {
         impl_->overlayApi->HideOverlay(impl_->notificationOverlay);
         impl_->overlayApi->DestroyOverlay(impl_->notificationOverlay);
     }
+    if (impl_->overlayApi != nullptr && impl_->passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+        impl_->overlayApi->HideOverlay(impl_->passthroughOverlay);
+        impl_->overlayApi->DestroyOverlay(impl_->passthroughOverlay);
+    }
     if (impl_->overlayApi != nullptr && impl_->settingsOverlay != vr::k_ulOverlayHandleInvalid) {
         impl_->overlayApi->HideOverlay(impl_->settingsOverlay);
         impl_->overlayApi->DestroyOverlay(impl_->settingsOverlay);
@@ -2973,6 +3376,7 @@ void OpenVrOverlayRenderer::Stop() noexcept {
     impl_->gestureOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->settingsOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->notificationOverlay = vr::k_ulOverlayHandleInvalid;
+    impl_->passthroughOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->dashboardOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->dashboardThumbnail = vr::k_ulOverlayHandleInvalid;
     impl_->menuOverlay = vr::k_ulOverlayHandleInvalid;

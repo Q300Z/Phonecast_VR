@@ -37,6 +37,7 @@ public:
     bool PinCurrentPosition(vr::OverlaySettings& settings, std::string& error);
     std::string DefaultAudioDeviceId() const;
     bool TakePointerEvent(core::PointerEvent& event) override;
+    bool TakeTextEntered(std::string& text) override;
     bool ShowNotification(const core::protocol::NotificationEvent& notification,
                           std::string& error) override;
     bool HideNotification(std::string& error) override;

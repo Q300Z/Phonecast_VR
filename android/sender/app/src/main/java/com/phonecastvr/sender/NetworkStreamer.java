@@ -19,6 +19,7 @@ final class NetworkStreamer {
         void onConnectionChanged(boolean connected, String message);
         void onKeyFrameNeeded();
         void onRemoteInput(RemoteInputEvent event);
+        void onRemoteText(String text);
         void onNotificationOpen(long actionToken);
         void onAudioCapability(boolean supported);
     }
@@ -442,6 +443,8 @@ final class NetworkStreamer {
                     listener.onKeyFrameNeeded();
                 } else if (header.type == StreamProtocol.TYPE_REMOTE_INPUT) {
                     listener.onRemoteInput(StreamProtocol.parseRemoteInput(payload, header.sequence));
+                } else if (header.type == StreamProtocol.TYPE_REMOTE_TEXT) {
+                    listener.onRemoteText(StreamProtocol.parseRemoteText(payload));
                 } else if (header.type == StreamProtocol.TYPE_NOTIFICATION_OPEN &&
                         header.payloadSize == 0) {
                     listener.onNotificationOpen(header.sequence);

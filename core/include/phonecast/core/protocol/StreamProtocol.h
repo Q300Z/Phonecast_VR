@@ -30,6 +30,7 @@ enum class MessageType : std::uint8_t {
     AudioStatus = 14,
     ScreenMetrics = 15,
     PhoneImu = 16,
+    RemoteText = 17,
 };
 
 enum MessageFlags : std::uint16_t {
@@ -121,5 +122,9 @@ bool ParseScreenMetrics(const std::uint8_t* data, std::size_t size,
 std::vector<std::uint8_t> SerializePhoneImu(const StreamPhoneImu& imu);
 bool ParsePhoneImu(const std::uint8_t* data, std::size_t size,
                    StreamPhoneImu& imu, std::string& error);
+
+std::vector<std::uint8_t> SerializeRemoteText(const std::string& text);
+bool ParseRemoteText(const std::uint8_t* data, std::size_t size,
+                     std::string& text, std::string& error);
 
 }  // namespace phonecast::core::protocol

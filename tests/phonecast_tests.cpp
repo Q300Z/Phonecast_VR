@@ -214,6 +214,55 @@ void TestStreamProtocol() {
     Check(!ParsePointerEvent(invalidPointer.data(), invalidPointer.size(), parsedPointer, error),
           "non-finite remote input is rejected");
 
+    phonecast::core::PointerEvent homePointer;
+    homePointer.type = phonecast::core::PointerEvent::Type::Home;
+    const auto homeBytes = SerializePointerEvent(homePointer);
+    Check(ParsePointerEvent(homeBytes.data(), homeBytes.size(), parsedPointer, error) &&
+              parsedPointer.type == phonecast::core::PointerEvent::Type::Home,
+          "home remote input round trips");
+
+    phonecast::core::PointerEvent recentsPointer;
+    recentsPointer.type = phonecast::core::PointerEvent::Type::Recents;
+    const auto recentsBytes = SerializePointerEvent(recentsPointer);
+    Check(ParsePointerEvent(recentsBytes.data(), recentsBytes.size(), parsedPointer, error) &&
+              parsedPointer.type == phonecast::core::PointerEvent::Type::Recents,
+          "recents remote input round trips");
+
+    const std::string sampleText = "SteamVR Remote Keyboard Input ⌨ ◯ ▢ éàçù";
+    const auto textBytes = SerializeRemoteText(sampleText);
+    std::string parsedText;
+    Check(ParseRemoteText(textBytes.data(), textBytes.size(), parsedText, error) &&
+              parsedText == sampleText,
+          "remote text with UTF-8 multi-byte and emojis round trips");
+
+    // Empty text round trip
+    const auto emptyTextBytes = SerializeRemoteText("");
+    Check(ParseRemoteText(emptyTextBytes.data(), emptyTextBytes.size(), parsedText, error) &&
+              parsedText.empty(),
+          "empty remote text round trips");
+
+    // Max length text (4096 bytes)
+    const std::string maxText(4096, 'A');
+    const auto maxTextBytes = SerializeRemoteText(maxText);
+    Check(ParseRemoteText(maxTextBytes.data(), maxTextBytes.size(), parsedText, error) &&
+              parsedText == maxText,
+          "maximum length 4096 bytes remote text round trips");
+
+    // Over-length text rejected (4097 bytes)
+    const std::string overText(4097, 'B');
+    Check(SerializeRemoteText(overText).empty(),
+          "over-length remote text (>4096 bytes) is rejected by serializer");
+
+    // Truncated packet
+    Check(!ParseRemoteText(textBytes.data(), textBytes.size() - 2, parsedText, error),
+          "truncated remote text buffer is rejected by parser");
+
+    // Invalid pointer event type rejected
+    auto invalidPointerType = pointerBytes;
+    invalidPointerType[0] = 99; // invalid type
+    Check(!ParsePointerEvent(invalidPointerType.data(), invalidPointerType.size(), parsedPointer, error),
+          "unknown pointer event type is rejected");
+
     NotificationEvent notification;
     notification.applicationName = "Messages";
     notification.title = "Are you coming?";
@@ -331,6 +380,18 @@ void TestOverlayInteraction() {
               !interaction.IsBackButton(100.0F, 50.0F) &&
               !interaction.IsBackButton(50.0F, 100.0F),
           "the lower-left handle corner is reserved for Android Back");
+    Check(interaction.IsHomeButton(150.0F, 50.0F) &&
+              !interaction.IsHomeButton(50.0F, 50.0F) &&
+              !interaction.IsHomeButton(250.0F, 50.0F),
+          "the second footer slot is reserved for Android Home");
+    Check(interaction.IsRecentsButton(250.0F, 50.0F) &&
+              !interaction.IsRecentsButton(150.0F, 50.0F) &&
+              !interaction.IsRecentsButton(350.0F, 50.0F),
+          "the third footer slot is reserved for Android Recents");
+    Check(interaction.IsKeyboardButton(350.0F, 50.0F) &&
+              !interaction.IsKeyboardButton(250.0F, 50.0F) &&
+              !interaction.IsKeyboardButton(450.0F, 50.0F),
+          "the fourth footer slot is reserved for SteamVR Keyboard");
     Check(interaction.IsCloseButton(850.0F, 50.0F) &&
               !interaction.IsCloseButton(50.0F, 50.0F) &&
               !interaction.IsCloseButton(850.0F, 100.0F),
@@ -341,6 +402,38 @@ void TestOverlayInteraction() {
           "the lower-right handle corner is reserved for resizing the phone");
     Check(top.normalizedY == 0.0F && bottom.normalizedY == 1.0F,
           "the grab handle inset does not offset phone touch coordinates");
+
+    // Home and Recents interaction events
+    const auto homeEv = interaction.Home();
+    Check(homeEv.type == phonecast::core::PointerEvent::Type::Home,
+          "OverlayInteractionController generates valid Home event");
+    const auto recentsEv = interaction.Recents();
+    Check(recentsEv.type == phonecast::core::PointerEvent::Type::Recents,
+          "OverlayInteractionController generates valid Recents event");
+
+    // Scroll delta clamping [-1.0, 1.0]
+    const auto scrollClampedPos = interaction.Scroll(500.0F, 1000.0F, 5.0F);
+    Check(scrollClampedPos.scrollDelta == 1.0F,
+          "scroll delta clamps to maximum +1.0");
+    const auto scrollClampedNeg = interaction.Scroll(500.0F, 1000.0F, -5.0F);
+    Check(scrollClampedNeg.scrollDelta == -1.0F,
+          "scroll delta clamps to minimum -1.0");
+
+    // Coordinate out-of-bounds clamping [0.0, 1.0]
+    const auto outNeg = interaction.PointerDown(-100.0F, -100.0F);
+    Check(outNeg.normalizedX == 0.0F && outNeg.normalizedY == 1.0F,
+          "negative coordinates clamp cleanly into [0, 1] range");
+    const auto outPos = interaction.PointerMove(5000.0F, 10000.0F);
+    Check(outPos.normalizedX == 1.0F && outPos.normalizedY == 0.0F,
+          "excess coordinates clamp cleanly into [0, 1] range");
+
+    // Degenerate width handling (e.g. width < bottomInset * 2)
+    phonecast::vr::OverlayInteractionController narrowInteraction;
+    narrowInteraction.SetSurfaceSize(50, 200, 40);
+    Check(!narrowInteraction.IsHomeButton(45.0F, 20.0F),
+          "narrow surface safely disables Home button without out-of-bounds click");
+    Check(!narrowInteraction.IsRecentsButton(85.0F, 20.0F),
+          "narrow surface safely disables Recents button without out-of-bounds click");
 }
 
 void TestOverlayControls() {
@@ -1715,6 +1808,102 @@ void TestTcpVideoServerImuAdversarialValidation() {
     server.Stop();
 }
 
+void TestTcpVideoServerRemoteText() {
+    using namespace phonecast::core::protocol;
+
+    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+#ifdef _WIN32
+    int length = sizeof(address);
+#else
+    socklen_t length = sizeof(address);
+#endif
+    getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length);
+    const auto port = ntohs(address.sin_port);
+    closesocket(probe);
+
+    phonecast::platform::network::TcpVideoServer server("112233", port, false);
+    std::string error;
+
+    // 1. With no server running / no client: must gracefully return false with clear error
+    Check(!server.SendRemoteText("Hello without client", error) && !error.empty(),
+          "SendRemoteText returns false when no client is connected");
+
+    Check(server.Start(error), "server starts for remote text test");
+
+    // Still no client connected
+    Check(!server.SendRemoteText("Still no client", error),
+          "SendRemoteText returns false before client connects");
+
+    SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    auto waitCondition = [](auto condition, int timeoutMs = 2500) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+
+    waitCondition([&] {
+        return connect(client, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    });
+
+    Message hello;
+    hello.type = MessageType::Hello;
+    hello.payload = {'1', '1', '2', '2', '3', '3'};
+    const auto helloBytes = Serialize(hello);
+    send(client, reinterpret_cast<const char*>(helloBytes.data()), static_cast<int>(helloBytes.size()), 0);
+
+    Check(waitCondition([&] { return server.Connected(); }),
+          "server registers client connection for text test");
+
+    // 2. Client is connected: send remote text
+    const std::string testMessage = "VR Native Keyboard Test: 12345 ⌨ ◯ ▢";
+    Check(server.SendRemoteText(testMessage, error),
+          "SendRemoteText succeeds when client is connected");
+
+    // Receive message on client socket
+    std::uint8_t headerBytes[kHeaderSize]{};
+    std::size_t received = 0;
+    while (received < kHeaderSize) {
+        const int n = recv(client, reinterpret_cast<char*>(headerBytes + received),
+                           static_cast<int>(kHeaderSize - received), 0);
+        if (n <= 0) break;
+        received += static_cast<std::size_t>(n);
+    }
+    Check(received == kHeaderSize, "client receives RemoteText header");
+
+    Message parsedMsg;
+    std::uint32_t payloadSize = 0;
+    Check(ParseHeader(headerBytes, kHeaderSize, parsedMsg, payloadSize, error) &&
+              parsedMsg.type == MessageType::RemoteText,
+          "received message header has type MessageType::RemoteText");
+
+    std::vector<std::uint8_t> payload(payloadSize);
+    received = 0;
+    while (received < payloadSize) {
+        const int n = recv(client, reinterpret_cast<char*>(payload.data() + received),
+                           static_cast<int>(payloadSize - received), 0);
+        if (n <= 0) break;
+        received += static_cast<std::size_t>(n);
+    }
+    Check(received == payloadSize, "client receives complete RemoteText payload");
+
+    std::string receivedText;
+    Check(ParseRemoteText(payload.data(), payload.size(), receivedText, error) &&
+              receivedText == testMessage,
+          "client deserializes matching remote text string");
+
+    closesocket(client);
+    server.Stop();
+}
+
 }  // namespace
 
 int main() {
@@ -1739,6 +1928,7 @@ int main() {
     TestTcpVideoServerImuFloodingUnderVideoLoad();
     TestTcpVideoServerImuFifoDropOldestExactness();
     TestTcpVideoServerImuAdversarialValidation();
+    TestTcpVideoServerRemoteText();
 #ifdef _WIN32
     WSACleanup();
 #endif

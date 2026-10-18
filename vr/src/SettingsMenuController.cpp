@@ -396,6 +396,9 @@ SettingsMenuResult SettingsMenuController::Activate() {
         return SettingsMenuResult::Updated;
     }
 
+    if (page_ == Page::Placement && selected_ == 0) {
+        return Adjust(1);
+    }
     if (page_ == Page::Placement && selected_ == 4) {
         page_ = Page::StartLocation;
         selected_ = 0;

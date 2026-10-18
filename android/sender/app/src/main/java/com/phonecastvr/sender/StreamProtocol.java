@@ -22,6 +22,7 @@ final class StreamProtocol {
     static final int TYPE_NOTIFICATION_OPEN = 11;
     static final int TYPE_SCREEN_METRICS = 15;
     static final int TYPE_PHONE_IMU = 16;
+    static final int TYPE_REMOTE_TEXT = 17;
     static final int FLAG_KEY_FRAME = 1;
     static final int MAX_PAYLOAD_SIZE = 4 * 1024 * 1024;
 
@@ -116,13 +117,42 @@ final class StreamProtocol {
         float x = input.readFloat();
         float y = input.readFloat();
         float scroll = input.readFloat();
-        if (type < RemoteInputEvent.DOWN || type > RemoteInputEvent.BACK ||
+        if (type < RemoteInputEvent.DOWN || type > RemoteInputEvent.RECENTS ||
                 !Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(scroll) ||
                 x < 0.0f || x > 1.0f || y < 0.0f || y > 1.0f ||
                 scroll < -1.0f || scroll > 1.0f) {
             throw new IOException("Invalid normalized remote-input event");
         }
         return new RemoteInputEvent(type, x, y, scroll, sequence);
+    }
+
+    static byte[] remoteTextPayload(String text) throws IOException {
+        byte[] bytes = (text == null ? "" : text).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (bytes.length > 4096) throw new IOException("Remote text exceeds 4096 bytes");
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(4 + bytes.length);
+        DataOutputStream output = new DataOutputStream(buffer);
+        output.writeByte(1); // version
+        output.writeByte(0); // flags
+        output.writeShort(bytes.length);
+        output.write(bytes);
+        return buffer.toByteArray();
+    }
+
+    static String parseRemoteText(byte[] payload) throws IOException {
+        if (payload == null || payload.length < 4) {
+            throw new IOException("Remote text payload is incomplete");
+        }
+        DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload));
+        int version = input.readUnsignedByte();
+        if (version != 1) throw new IOException("Unsupported remote text version: " + version);
+        int flags = input.readUnsignedByte();
+        int length = input.readUnsignedShort();
+        if (length > 4096 || length != payload.length - 4) {
+            throw new IOException("Invalid remote text length: " + length);
+        }
+        byte[] textBytes = new byte[length];
+        input.readFully(textBytes);
+        return new String(textBytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     static boolean validPairCode(String value) {
