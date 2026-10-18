@@ -32,6 +32,20 @@
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       }
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Linux x64 (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/linux-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     }
   ],
   "buildPresets": [
@@ -42,6 +56,10 @@
     {
       "name": "linux-arm64",
       "configurePreset": "linux-arm64"
+    },
+    {
+      "name": "linux-x64",
+      "configurePreset": "linux-x64"
     }
   ]
 }

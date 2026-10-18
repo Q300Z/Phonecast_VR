@@ -30,18 +30,22 @@ Build, run tests, and immediately install the receiver and dashboard icons direc
 ### 2. Linux Development Host (x86_64 or ARM64)
 
 ```bash
-# Configure debug test build:
+# List available CMake presets:
+./scripts/verify-and-build-release.sh --list-presets
+# Or: cmake --list-presets
+
+# Standardized Release build using CMake preset (linux-x64 or linux-arm64):
+./scripts/verify-and-build-release.sh --preset linux-x64
+
+# Or configure & build directly with CMake:
+cmake --preset linux-x64
+cmake --build --preset linux-x64
+ctest --test-dir out/build/linux-x64 -j$(nproc) --output-on-failure
+
+# Configure custom debug test build:
 cmake -B out/build/linux-test -DCMAKE_BUILD_TYPE=Debug
-
-# Compile all targets in parallel:
 cmake --build out/build/linux-test -j$(nproc)
-
-# Run full CTest suite (21 test suites in parallel):
 ctest --test-dir out/build/linux-test -j$(nproc) --output-on-failure
-
-# Run a specific targeted test suite (e.g. tracking E2E or protocol):
-ctest --test-dir out/build/linux-test -R phonecast-e2e-tracking-tests --output-on-failure
-ctest --test-dir out/build/linux-test -R phonecast-unit-tests --output-on-failure
 
 # Measure C++ code coverage with gcov:
 cmake -B out/build/linux-coverage -DCMAKE_BUILD_TYPE=Debug \

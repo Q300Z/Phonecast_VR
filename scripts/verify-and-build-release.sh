@@ -4,21 +4,34 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-PRESET="linux-arm64"
+DEFAULT_PRESET="linux-arm64"
+case "$(uname -m 2>/dev/null || echo '')" in
+  x86_64|amd64) DEFAULT_PRESET="linux-x64" ;;
+  aarch64|arm64) DEFAULT_PRESET="linux-arm64" ;;
+esac
+
+PRESET="$DEFAULT_PRESET"
 BUILD_DIR=""
 RUN_TESTS=1
 INSTALL_ON_HEADSET=0
 JOBS=""
 
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Required command not found: $1" >&2
+    exit 1
+  fi
+}
+
 usage() {
-  cat <<'USAGE'
+  cat <<USAGE
 Usage: verify-and-build-release.sh [options]
 
-Workflow script tailored for compiling and deploying PhoneCast VR
-directly on the Steam Frame standalone headset (ARM64).
+Workflow script tailored for compiling, testing, and deploying PhoneCast VR.
 
 Options:
-  -p, --preset NAME            CMake preset to use (default: linux-arm64)
+  -p, --preset NAME            CMake preset to use (default: $DEFAULT_PRESET)
+  -l, --list-presets           List available CMake presets and exit
   -b, --build-dir PATH         Build directory for release and test checks
   -j, --jobs N                 Number of concurrent jobs for tests (default: auto)
   -i, --install                Automatically run install-phonecast.sh after build
@@ -29,6 +42,12 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -l|--list-presets)
+      require_command cmake
+      cd "$REPO_ROOT"
+      cmake --list-presets
+      exit 0
+      ;;
     -p|--preset)
       [ "$#" -ge 2 ] || { echo "Missing value for $1" >&2; exit 1; }
       PRESET="$2"
@@ -72,16 +91,11 @@ if [ -z "$JOBS" ]; then
   JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 fi
 
-require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Required command not found: $1" >&2
-    exit 1
-  fi
-}
 
 require_command cmake
 require_command ninja
 if [ "$RUN_TESTS" -eq 1 ]; then
+
   require_command ctest
 fi
 
