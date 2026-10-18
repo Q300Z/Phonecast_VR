@@ -39,6 +39,8 @@ struct CameraFrameSnapshot {
     std::vector<uint8_t> rgbaBuffer;
     core::tracking::ScreenCorners2D corners{};
     std::uint64_t sequence{0};
+    core::tracking::TrackingState state{core::tracking::TrackingState::Lost};
+    float confidence{1.0F};
 };
 
 class TrackedCameraWorker final {
@@ -105,6 +107,8 @@ private:
     bool hasMetrics_{false};
 
     core::tracking::ScreenCorners2D priorCorners_{};
+    core::tracking::ScreenCorners2D lastValidCorners_{};
+    uint32_t occlusionFrameCount_{0};
 
     std::vector<uint8_t> frameBuffer_;
     uint32_t frameWidth_{0};

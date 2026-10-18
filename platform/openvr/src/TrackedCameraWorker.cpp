@@ -455,11 +455,17 @@ bool TrackedCameraWorker::DetectScreenCorners(
         outCorners = core::tracking::CornerIntersection::ComputeCorners(borders);
         if (outCorners.valid) {
             priorCorners_ = outCorners;
+            lastValidCorners_ = outCorners;
+            occlusionFrameCount_ = 0;
             return true;
         }
     }
 
-    priorCorners_.valid = false;
+    ++occlusionFrameCount_;
+    if (occlusionFrameCount_ > 45) {
+        priorCorners_.valid = false;
+        lastValidCorners_.valid = false;
+    }
     return false;
 }
 
@@ -481,6 +487,10 @@ void TrackedCameraWorker::ProcessFrame(
         }
         currentMetrics = screenMetrics_;
         hasMetrics = hasMetrics_;
+        if (!hasMetrics || !currentMetrics.IsValid()) {
+            currentMetrics = core::tracking::ScreenMetrics{71.0F, 155.0F, 1080, 2400};
+            hasMetrics = true;
+        }
         hasImu = hasImu_;
         if (hasImu) {
             imuOrientation = latestImu_.orientation;
@@ -565,8 +575,19 @@ void TrackedCameraWorker::ProcessFrame(
             latestFrameSnapshot_.valid = true;
             latestFrameSnapshot_.width = frameView.width;
             latestFrameSnapshot_.height = frameView.height;
-            latestFrameSnapshot_.corners = corners;
             latestFrameSnapshot_.sequence = header.nFrameSequence;
+            latestFrameSnapshot_.state = fusedPose.state;
+            latestFrameSnapshot_.confidence = fusedPose.confidence;
+
+            if (cornersFound) {
+                latestFrameSnapshot_.corners = corners;
+            } else if (fusedPose.state == core::tracking::TrackingState::Occluded && lastValidCorners_.valid) {
+                // Hold stable corners during occlusion so passthrough cutout remains anchored to the phone
+                latestFrameSnapshot_.corners = lastValidCorners_;
+            } else {
+                latestFrameSnapshot_.corners = {};
+            }
+
             const std::size_t byteCount = static_cast<std::size_t>(frameView.width) * frameView.height * 4U;
             if (latestFrameSnapshot_.rgbaBuffer.size() != byteCount) {
                 latestFrameSnapshot_.rgbaBuffer.resize(byteCount);
@@ -588,6 +609,8 @@ void TrackedCameraWorker::WorkerLoop() {
                 }
                 streamingAcquired = false;
                 priorCorners_ = {};
+                lastValidCorners_ = {};
+                occlusionFrameCount_ = 0;
             }
             std::unique_lock<std::mutex> lock(wakeMutex_);
             wakeCv_.wait(lock, [this] { return !running_ || active_; });
@@ -623,13 +646,11 @@ void TrackedCameraWorker::WorkerLoop() {
             ::vr::CameraVideoStreamFrameHeader_t header{};
             const auto err = cameraSource_->GetFrame(
                 frameBuffer_.data(), static_cast<uint32_t>(frameBuffer_.size()), header);
-            if (err == ::vr::VRTrackedCameraError_None) {
-                if (header.nFrameSequence != lastSequence_) {
-                    lastSequence_ = header.nFrameSequence;
-                    ProcessFrame(frameBuffer_.data(), header);
-                }
+            if (err == ::vr::VRTrackedCameraError_None && header.nFrameSequence != lastSequence_) {
+                lastSequence_ = header.nFrameSequence;
+                ProcessFrame(frameBuffer_.data(), header);
             } else {
-                // No frame available yet or temporary dropout: drain IMU & evaluate pose
+                // Between camera frames or during temporary camera dropout: drain IMU & update pose
                 std::vector<core::tracking::PhoneImuPacket> imusToDrain;
                 {
                     std::lock_guard<std::mutex> lock(dataMutex_);

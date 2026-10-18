@@ -735,21 +735,19 @@ public:
             return;
         }
 
-        float minX = static_cast<float>(camSnapshot.width) * 0.25F;
-        float maxX = static_cast<float>(camSnapshot.width) * 0.75F;
-        float minY = static_cast<float>(camSnapshot.height) * 0.25F;
-        float maxY = static_cast<float>(camSnapshot.height) * 0.75F;
-
-        if (camSnapshot.corners.valid) {
-            minX = std::min({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
-                             camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
-            maxX = std::max({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
-                             camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
-            minY = std::min({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
-                             camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
-            maxY = std::max({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
-                             camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
+        if (!camSnapshot.corners.valid) {
+            overlayApi->HideOverlay(passthroughOverlay);
+            return;
         }
+
+        const float minX = std::min({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
+                                     camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
+        const float maxX = std::max({camSnapshot.corners.corners[0].x, camSnapshot.corners.corners[1].x,
+                                     camSnapshot.corners.corners[2].x, camSnapshot.corners.corners[3].x});
+        const float minY = std::min({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
+                                     camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
+        const float maxY = std::max({camSnapshot.corners.corners[0].y, camSnapshot.corners.corners[1].y,
+                                     camSnapshot.corners.corners[2].y, camSnapshot.corners.corners[3].y});
 
         const float screenW = std::max(10.0F, maxX - minX);
         const float screenH = std::max(10.0F, maxY - minY);
@@ -796,6 +794,8 @@ public:
         const float passthroughWidth = physicalWidthMeters > 0.0F ? (physicalWidthMeters * scaleFactor) : 0.12F;
         overlayApi->SetOverlayWidthInMeters(passthroughOverlay, passthroughWidth);
         overlayApi->SetOverlayTransformAbsolute(passthroughOverlay, vr::TrackingUniverseStanding, &phoneTransform);
+        const float overlayAlpha = std::max(0.15F, std::min(1.0F, camSnapshot.confidence));
+        overlayApi->SetOverlayAlpha(passthroughOverlay, overlayAlpha);
         overlayApi->ShowOverlay(passthroughOverlay);
     }
 
@@ -2086,6 +2086,7 @@ bool OpenVrOverlayRenderer::SubmitFrame(const core::VideoFrame& frame, std::stri
     impl_->interaction.SetSurfaceSize(frame.width, frame.height,
                                       kGrabHandleHeightPixels);
     impl_->hasFrame = true;
+    impl_->UpdateControllerPlacement();
     if (impl_->desiredVisible && !impl_->shown) {
         if (!SetVisible(true, error)) return false;
         impl_->logger.Log(core::LogLevel::Info, "openvr", "Overlay is visible.");
