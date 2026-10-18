@@ -3,7 +3,10 @@ add_library(phonecast-openvr-backend
     src/TrackedCameraWorker.cpp
 )
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(phonecast-openvr-backend PRIVATE src/SteamFrameVulkanTexture.cpp)
+    target_sources(phonecast-openvr-backend PRIVATE
+        src/SteamFrameVulkanTexture.cpp
+        src/SteamFrameV4L2CameraSource.cpp
+    )
     # OpenVR pins a Vulkan 1.0 header for its sample renderer. Using that header
     # plus runtime loading keeps ARM64 cross-builds independent of host Vulkan
     # development packages while the headset supplies libvulkan.so.1.

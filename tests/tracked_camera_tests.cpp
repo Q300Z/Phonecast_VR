@@ -1,5 +1,8 @@
 #include "ITrackedCameraSource.h"
 #include "TrackedCameraWorker.h"
+#if defined(__linux__)
+#include "SteamFrameV4L2CameraSource.h"
+#endif
 #include "phonecast/core/logging/ILogger.h"
 #include "phonecast/core/protocol/StreamProtocol.h"
 #include "phonecast/core/tracking/TrackingTypes.h"
@@ -458,6 +461,28 @@ void TestMetricScaleIntegrity() {
     worker.Stop();
 }
 
+void TestSteamFrameV4L2CameraSource() {
+    std::cout << "\n=== TestSteamFrameV4L2CameraSource ===\n";
+#if defined(__linux__)
+    TestLogger logger;
+    phonecast::platform::openvr::SteamFrameV4L2CameraSource v4l2Source(logger, nullptr);
+    const bool hasHardware = v4l2Source.HasCamera();
+    std::cout << "  Steam Frame IMX616 hardware detected: " << (hasHardware ? "YES" : "NO (graceful fallback)") << '\n';
+    if (!hasHardware) {
+        Check(!v4l2Source.AcquireStreaming(), "AcquireStreaming returns false gracefully when IMX616 is not present");
+    }
+    uint32_t w = 0, h = 0, b = 0;
+    v4l2Source.GetFrameSize(w, h, b);
+    Check(w > 0 && h > 0 && b > 0, "GetFrameSize returns non-zero buffer bounds");
+    phonecast::core::tracking::CameraIntrinsics intrinsics{};
+    v4l2Source.GetIntrinsics(intrinsics);
+    Check(intrinsics.fx > 0.0F && intrinsics.imageWidth == w, "GetIntrinsics returns valid FOV");
+    v4l2Source.ReleaseStreaming();
+#else
+    std::cout << "  (Skipped on non-Linux platform)\n";
+#endif
+}
+
 } // namespace
 
 int main() {
@@ -469,6 +494,7 @@ int main() {
     TestCoordinateCompoundingVerification();
     TestStableOcclusionHold();
     TestMetricScaleIntegrity();
+    TestSteamFrameV4L2CameraSource();
 
     std::cout << "\nTest Summary: " << totalAssertions << " assertions checked, "
               << failureCount << " failures.\n";

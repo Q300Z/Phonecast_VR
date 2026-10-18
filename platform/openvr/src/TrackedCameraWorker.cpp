@@ -1,4 +1,7 @@
 #include "TrackedCameraWorker.h"
+#if defined(__linux__)
+#include "SteamFrameV4L2CameraSource.h"
+#endif
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -163,10 +166,102 @@ private:
     ::vr::TrackedCameraHandle_t handle_{0};
 };
 
+class AutoTrackedCameraSource : public ITrackedCameraSource {
+public:
+    AutoTrackedCameraSource(core::ILogger& logger, ::vr::IVRSystem* system, ::vr::IVRTrackedCamera* cameraApi)
+        : logger_(logger) {
+        openvrSource_ = std::make_unique<OpenVrTrackedCameraSource>(system, cameraApi);
+#if defined(__linux__)
+        v4l2Source_ = std::make_unique<SteamFrameV4L2CameraSource>(logger, system);
+#endif
+    }
+
+    bool HasCamera() override {
+        if (openvrSource_ && openvrSource_->HasCamera()) return true;
+#if defined(__linux__)
+        if (v4l2Source_ && v4l2Source_->HasCamera()) return true;
+#endif
+        return false;
+    }
+
+    bool GetFrameSize(uint32_t& width, uint32_t& height, uint32_t& bufferSize) override {
+        if (activeSource_) return activeSource_->GetFrameSize(width, height, bufferSize);
+        if (openvrSource_ && openvrSource_->HasCamera()) return openvrSource_->GetFrameSize(width, height, bufferSize);
+#if defined(__linux__)
+        if (v4l2Source_ && v4l2Source_->HasCamera()) return v4l2Source_->GetFrameSize(width, height, bufferSize);
+#endif
+        width = 640;
+        height = 480;
+        bufferSize = 640 * 480 * 4;
+        return true;
+    }
+
+    bool GetIntrinsics(core::tracking::CameraIntrinsics& intrinsics) override {
+        if (activeSource_) return activeSource_->GetIntrinsics(intrinsics);
+        if (openvrSource_ && openvrSource_->HasCamera()) return openvrSource_->GetIntrinsics(intrinsics);
+#if defined(__linux__)
+        if (v4l2Source_ && v4l2Source_->HasCamera()) return v4l2Source_->GetIntrinsics(intrinsics);
+#endif
+        intrinsics = {384.0F, 384.0F, 320.0F, 240.0F, 640, 480};
+        return true;
+    }
+
+    bool GetCameraToHeadTransform(::vr::HmdMatrix34_t& outTransform) override {
+        if (activeSource_) return activeSource_->GetCameraToHeadTransform(outTransform);
+        if (openvrSource_ && openvrSource_->HasCamera()) return openvrSource_->GetCameraToHeadTransform(outTransform);
+#if defined(__linux__)
+        if (v4l2Source_ && v4l2Source_->HasCamera()) return v4l2Source_->GetCameraToHeadTransform(outTransform);
+#endif
+        outTransform = ::vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                            {0.0F, 1.0F, 0.0F, 0.0F},
+                                            {0.0F, 0.0F, 1.0F, 0.0F}}};
+        return true;
+    }
+
+    bool AcquireStreaming() override {
+        if (activeSource_) return true;
+        if (openvrSource_ && openvrSource_->AcquireStreaming()) {
+            activeSource_ = openvrSource_.get();
+            logger_.Log(core::LogLevel::Info, "camera-worker", "Acquired camera streaming via OpenVR IVRTrackedCamera.");
+            return true;
+        }
+#if defined(__linux__)
+        if (v4l2Source_ && v4l2Source_->AcquireStreaming()) {
+            activeSource_ = v4l2Source_.get();
+            logger_.Log(core::LogLevel::Info, "camera-worker", "Acquired camera streaming via direct Linux V4L2 (Steam Frame hardware).");
+            return true;
+        }
+#endif
+        return false;
+    }
+
+    void ReleaseStreaming() override {
+        if (activeSource_) {
+            activeSource_->ReleaseStreaming();
+            activeSource_ = nullptr;
+        }
+    }
+
+    ::vr::EVRTrackedCameraError GetFrame(
+        void* frameBuffer, uint32_t bufferSize,
+        ::vr::CameraVideoStreamFrameHeader_t& header) override {
+        if (activeSource_) return activeSource_->GetFrame(frameBuffer, bufferSize, header);
+        return ::vr::VRTrackedCameraError_InvalidHandle;
+    }
+
+private:
+    core::ILogger& logger_;
+    std::unique_ptr<OpenVrTrackedCameraSource> openvrSource_;
+#if defined(__linux__)
+    std::unique_ptr<SteamFrameV4L2CameraSource> v4l2Source_;
+#endif
+    ITrackedCameraSource* activeSource_{nullptr};
+};
+
 } // namespace
 
 TrackedCameraWorker::TrackedCameraWorker(core::ILogger& logger, ::vr::IVRSystem* system, ::vr::IVRTrackedCamera* cameraApi)
-    : TrackedCameraWorker(logger, std::make_unique<OpenVrTrackedCameraSource>(system, cameraApi)) {}
+    : TrackedCameraWorker(logger, std::make_unique<AutoTrackedCameraSource>(logger, system, cameraApi)) {}
 
 TrackedCameraWorker::TrackedCameraWorker(core::ILogger& logger, std::unique_ptr<ITrackedCameraSource> cameraSource)
     : logger_(logger), cameraSource_(std::move(cameraSource)) {
