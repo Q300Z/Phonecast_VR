@@ -272,226 +272,54 @@ const std::unordered_map<char, Glyph> kMenuGlyphs{
     {'>', {"10000", "01000", "00100", "00010", "00100", "01000", "10000"}}
 };
 
-void SetMenuPixel(std::vector<std::uint8_t>& image, int x, int y,
-                  const std::array<std::uint8_t, 4>& color) {
-    if (x < 0 || y < 0 || x >= static_cast<int>(kMenuTextureWidth) ||
-        y >= static_cast<int>(kMenuTextureHeight)) return;
-    const auto offset = (static_cast<std::size_t>(y) * kMenuTextureWidth +
-                         static_cast<std::size_t>(x)) * 4U;
-    std::copy(color.begin(), color.end(), image.begin() + static_cast<std::ptrdiff_t>(offset));
-}
+namespace ui {
+constexpr std::array<std::uint8_t, 4> kBgDark{7, 13, 23, 252};          // #070D17 Deep Navy container
+constexpr std::array<std::uint8_t, 4> kBgSurface{11, 21, 34, 250};       // #0B1522 Dark Navy surface / card
+constexpr std::array<std::uint8_t, 4> kBgElevated{24, 40, 59, 220};      // #18283B Elevated button / item
+constexpr std::array<std::uint8_t, 4> kBgHover{42, 74, 112, 245};         // #2A4A70 Surface hover
+constexpr std::array<std::uint8_t, 4> kAccentCyan{42, 188, 251, 255};     // #2ABCFB Vibrant Cyan
+constexpr std::array<std::uint8_t, 4> kAccentGlow{42, 188, 251, 220};     // #2ABCFB Accent line / glow
+constexpr std::array<std::uint8_t, 4> kBorderSubtle{24, 40, 59, 180};     // #18283B Surface High divider
+constexpr std::array<std::uint8_t, 4> kTextPrimary{245, 249, 255, 255};   // #F5F9FF Crisp off-white
+constexpr std::array<std::uint8_t, 4> kTextSecondary{167, 187, 205, 220}; // #A7BDCD Muted slate
+constexpr std::array<std::uint8_t, 4> kCloseHover{180, 48, 60, 245};      // #B4303C Crimson close hover
+constexpr std::array<std::uint8_t, 4> kDanger{255, 92, 105, 255};        // #FF5C69 Soft red
+constexpr std::array<std::uint8_t, 4> kWarning{255, 187, 92, 255};       // #FFBB5C Warning orange
+constexpr std::array<std::uint8_t, 4> kHandleNormal{167, 187, 205, 220}; // #A7BDCD Normal grab pill
+constexpr std::array<std::uint8_t, 4> kHandleHover{42, 188, 251, 255};    // #2ABCFB Active grab pill
+}  // namespace ui
 
-void DrawMenuLabel(std::vector<std::uint8_t>& image, const std::string& label,
-                   int centerX, int centerY, int scale) {
-    constexpr std::array<std::uint8_t, 4> color{245, 249, 255, 255};
-    const int advance = 6 * scale;
-    const int width = static_cast<int>(label.size()) * advance - scale;
-    int cursorX = centerX - width / 2;
-    const int originY = centerY - 7 * scale / 2;
-    for (const char character : label) {
-        const auto glyph = kMenuGlyphs.find(character);
-        if (glyph != kMenuGlyphs.end()) {
-            for (int row = 0; row < 7; ++row) {
-                for (int column = 0; column < 5; ++column) {
-                    if (glyph->second[static_cast<std::size_t>(row)][column] != '1') continue;
-                    for (int yy = 0; yy < scale; ++yy)
-                        for (int xx = 0; xx < scale; ++xx)
-                            SetMenuPixel(image, cursorX + column * scale + xx,
-                                         originY + row * scale + yy, color);
-                }
-            }
-        }
-        cursorX += advance;
-    }
-}
-
-void SetSettingsPixel(std::vector<std::uint8_t>& image, int x, int y,
-                      const std::array<std::uint8_t, 4>& color) {
-    if (x < 0 || y < 0 || x >= static_cast<int>(kSettingsTextureWidth) ||
-        y >= static_cast<int>(kSettingsTextureHeight)) return;
-    const auto offset = (static_cast<std::size_t>(y) * kSettingsTextureWidth +
-                         static_cast<std::size_t>(x)) * 4U;
-    std::copy(color.begin(), color.end(), image.begin() + static_cast<std::ptrdiff_t>(offset));
-}
-
-void FillSettingsRect(std::vector<std::uint8_t>& image, int x, int y, int width, int height,
-                      const std::array<std::uint8_t, 4>& color) {
-    for (int row = y; row < y + height; ++row)
-        for (int column = x; column < x + width; ++column)
-            SetSettingsPixel(image, column, row, color);
-}
-
-void FillSettingsRoundedRect(std::vector<std::uint8_t>& image, int x, int y,
-                             int width, int height, int radius,
-                             const std::array<std::uint8_t, 4>& color) {
-    for (int row = 0; row < height; ++row) {
-        for (int column = 0; column < width; ++column) {
-            const int dx = column < radius ? radius - column - 1
-                : column >= width - radius ? column - (width - radius) : 0;
-            const int dy = row < radius ? radius - row - 1
-                : row >= height - radius ? row - (height - radius) : 0;
-            if (dx * dx + dy * dy <= radius * radius)
-                SetSettingsPixel(image, x + column, y + row, color);
-        }
-    }
-}
-
-void DrawSettingsLabel(std::vector<std::uint8_t>& image, const std::string& label,
-                       int centerX, int centerY, int scale,
-                       const std::array<std::uint8_t, 4>& color) {
-    const int advance = 6 * scale;
-    const int width = static_cast<int>(label.size()) * advance - scale;
-    int cursorX = centerX - width / 2;
-    const int originY = centerY - 7 * scale / 2;
-    for (const char character : label) {
-        const auto glyph = kMenuGlyphs.find(character);
-        if (glyph != kMenuGlyphs.end()) {
-            for (int row = 0; row < 7; ++row) {
-                for (int column = 0; column < 5; ++column) {
-                    if (glyph->second[static_cast<std::size_t>(row)][column] != '1') continue;
-                    for (int yy = 0; yy < scale; ++yy)
-                        for (int xx = 0; xx < scale; ++xx)
-                            SetSettingsPixel(image, cursorX + column * scale + xx,
-                                             originY + row * scale + yy, color);
-                }
-            }
-        }
-        cursorX += advance;
-    }
-}
-
-std::vector<std::uint8_t> MakeSettingsTexture(const phonecast::vr::SettingsMenuView& view) {
-    constexpr std::array<std::uint8_t, 4> panel{10, 25, 42, 252};
-    constexpr std::array<std::uint8_t, 4> header{10, 24, 40, 255};
-    constexpr std::array<std::uint8_t, 4> row{27, 49, 76, 255};
-    constexpr std::array<std::uint8_t, 4> selected{31, 67, 101, 255};
-    constexpr std::array<std::uint8_t, 4> primary{48, 153, 245, 255};
-    constexpr std::array<std::uint8_t, 4> text{224, 235, 249, 255};
-    constexpr std::array<std::uint8_t, 4> secondary{161, 184, 211, 255};
-    constexpr std::array<std::uint8_t, 4> value{119, 188, 255, 255};
-    constexpr std::array<std::uint8_t, 4> track{58, 77, 96, 255};
-    constexpr std::array<std::uint8_t, 4> danger{255, 119, 126, 255};
-    std::vector<std::uint8_t> image(
-        static_cast<std::size_t>(kSettingsTextureWidth) * kSettingsTextureHeight * 4U, 0);
-    FillSettingsRoundedRect(image, 6, 6, static_cast<int>(kSettingsTextureWidth) - 12,
-                            static_cast<int>(kSettingsTextureHeight) - 12, 22, panel);
-    FillSettingsRoundedRect(image, 12, 12, static_cast<int>(kSettingsTextureWidth) - 24,
-                            82, 17, header);
-    FillSettingsRect(image, 12, 86, static_cast<int>(kSettingsTextureWidth) - 24, 4, primary);
-    DrawSettingsLabel(image, "PC", 42, 50, 3, primary);
-    DrawSettingsLabel(image, view.title, 276, 50,
-                      view.title.size() > 18 ? 2 : 3, text);
-
-    const bool root = view.title == "PHONECAST SETTINGS";
-    if (root) {
-        DrawSettingsLabel(image, "DISPLAY", 58, 111, 1, secondary);
-        constexpr int firstCenter = 150;
-        constexpr int rowStep = 78;
-        for (std::size_t index = 0; index < 7 && index < view.labels.size(); ++index) {
-            const int centerY = firstCenter + static_cast<int>(index) * rowStep;
-            FillSettingsRoundedRect(image, 16, centerY - 32,
-                                    static_cast<int>(kSettingsTextureWidth) - 32, 64, 13,
-                                    index == view.selectedIndex ? selected : row);
-            DrawSettingsLabel(image, view.labels[index], 158, centerY,
-                              view.labels[index].size() > 15 ? 1 : 2, text);
-            if (index < view.values.size())
-                DrawSettingsLabel(image, view.values[index], 390, centerY,
-                                  view.values[index].size() > 12 ? 1 : 2, secondary);
-            DrawSettingsLabel(image, ">", 474, centerY, 2, secondary);
-        }
-        FillSettingsRoundedRect(image, 16, 666, 480, 46, 12,
-            view.selectedIndex == 10 ? selected : row);
-        DrawSettingsLabel(image, "ABOUT / EXPORT LOGS", 256, 689, 2, text);
-        constexpr std::array<int, 3> actionLeft{16, 174, 332};
-        constexpr std::array<int, 3> actionWidth{142, 142, 164};
-        for (std::size_t action = 0; action < 3; ++action) {
-            const std::size_t index = action + 7;
-            FillSettingsRoundedRect(image, actionLeft[action], 730, actionWidth[action], 78, 14,
-                                    index == view.selectedIndex
-                                        ? (index == 9 ? primary : selected) : row);
-            const auto color = index == 7 ? danger : (index == 9 ? header : text);
-            DrawSettingsLabel(image, view.labels[index],
-                              actionLeft[action] + actionWidth[action] / 2, 769,
-                              view.labels[index].size() > 7 ? 1 : 2, color);
-            if (index == 7 && !view.values[index].empty())
-                DrawSettingsLabel(image, view.values[index],
-                                  actionLeft[action] + actionWidth[action] / 2, 794, 1, danger);
-        }
-    } else {
-        constexpr int rowHeight = 82;
-        constexpr int firstRow = 126;
-        for (std::size_t index = 0; index < view.labels.size(); ++index) {
-            const int centerY = firstRow + static_cast<int>(index) * rowHeight;
-            FillSettingsRoundedRect(image, 16, centerY - 34,
-                                    static_cast<int>(kSettingsTextureWidth) - 32, 68, 12,
-                                    index == view.selectedIndex ? selected : row);
-            DrawSettingsLabel(image, view.labels[index], 152, centerY - 12,
-                              view.labels[index].size() > 15 ? 1 : 2, text);
-            const bool adjustable = view.title != "ABOUT PHONECAST" && index < view.values.size() &&
-                                    !view.values[index].empty() && view.values[index] != ">";
-            if (index < view.values.size())
-                DrawSettingsLabel(image, view.values[index], 372, centerY - 12,
-                                  view.values[index].size() > 13 ? 1 : 2, value);
-            if (adjustable) {
-                FillSettingsRoundedRect(image, 18, centerY + 2, 54, 30, 8, header);
-                FillSettingsRoundedRect(image, 440, centerY + 2, 54, 30, 8, header);
-                DrawSettingsLabel(image, "-", 45, centerY + 17, 2, text);
-                DrawSettingsLabel(image, "+", 467, centerY + 17, 2, text);
-                if (index < view.normalizedValues.size() && view.normalizedValues[index] >= 0.0F) {
-                    constexpr int trackLeft = 88;
-                    constexpr int trackWidth = 336;
-                    FillSettingsRoundedRect(image, trackLeft, centerY + 13, trackWidth, 8, 4, track);
-                    const int knobX = trackLeft + static_cast<int>(
-                        Clamp(view.normalizedValues[index], 0.0F, 1.0F) * trackWidth);
-                    FillSettingsRoundedRect(image, knobX - 7, centerY + 5, 14, 24, 7, value);
-                }
-            }
-        }
-    }
-    DrawSettingsLabel(image, "MOVE", 256,
-                      static_cast<int>(kSettingsTextureHeight) - 52, 1, value);
-    FillSettingsRoundedRect(image, 176, static_cast<int>(kSettingsTextureHeight) - 35,
-                            160, 10, 5, primary);
-    return image;
-}
-
-void SetGesturePixel(std::vector<std::uint8_t>& image, int x, int y,
-                     const std::array<std::uint8_t, 4>& color) {
-    if (x < 0 || y < 0 || x >= static_cast<int>(kGestureTextureSize) ||
-        y >= static_cast<int>(kGestureTextureSize)) return;
-    const auto offset = (static_cast<std::size_t>(y) * kGestureTextureSize +
-                         static_cast<std::size_t>(x)) * 4U;
-    std::copy(color.begin(), color.end(), image.begin() + static_cast<std::ptrdiff_t>(offset));
-}
-
-std::vector<std::uint8_t> MakeGestureProgressTexture(int completedSteps) {
-    std::vector<std::uint8_t> image(
-        static_cast<std::size_t>(kGestureTextureSize) * kGestureTextureSize * 4U, 0);
-    const float center = static_cast<float>(kGestureTextureSize) * 0.5F;
-    for (std::uint32_t y = 0; y < kGestureTextureSize; ++y) {
-        for (std::uint32_t x = 0; x < kGestureTextureSize; ++x) {
-            const float dx = static_cast<float>(x) - center;
-            const float dy = center - static_cast<float>(y);
-            const float radius = std::sqrt(dx * dx + dy * dy);
-            if (radius < 43.0F || radius > 57.0F) continue;
-            float angle = std::atan2(dx, dy);
-            if (angle < 0.0F) angle += 2.0F * kPi;
-            const int step = static_cast<int>(angle / (2.0F * kPi) * kGestureProgressSteps);
-            const auto color = step < completedSteps
-                ? std::array<std::uint8_t, 4>{35, 175, 245, 255}
-                : std::array<std::uint8_t, 4>{70, 82, 98, 220};
-            SetGesturePixel(image, static_cast<int>(x), static_cast<int>(y), color);
-        }
-    }
-    return image;
-}
-
-void SetImagePixel(std::vector<std::uint8_t>& image, std::uint32_t width,
-                   std::uint32_t height, int x, int y,
-                   const std::array<std::uint8_t, 4>& color) {
+inline void SetImagePixel(std::vector<std::uint8_t>& image, std::uint32_t width,
+                          std::uint32_t height, int x, int y,
+                          const std::array<std::uint8_t, 4>& color) {
     if (x < 0 || y < 0 || x >= static_cast<int>(width) || y >= static_cast<int>(height)) return;
     const auto offset = (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4U;
-    std::copy(color.begin(), color.end(), image.begin() + static_cast<std::ptrdiff_t>(offset));
+    if (color[3] == 255) {
+        image[offset + 0] = color[0];
+        image[offset + 1] = color[1];
+        image[offset + 2] = color[2];
+        image[offset + 3] = 255;
+    } else {
+        const float alpha = static_cast<float>(color[3]) / 255.0F;
+        const float invAlpha = 1.0F - alpha;
+        image[offset + 0] = static_cast<std::uint8_t>(color[0] * alpha + image[offset + 0] * invAlpha);
+        image[offset + 1] = static_cast<std::uint8_t>(color[1] * alpha + image[offset + 1] * invAlpha);
+        image[offset + 2] = static_cast<std::uint8_t>(color[2] * alpha + image[offset + 2] * invAlpha);
+        image[offset + 3] = static_cast<std::uint8_t>(std::min(255.0F, color[3] + image[offset + 3] * invAlpha));
+    }
+}
+
+inline void BlendImagePixel(std::vector<std::uint8_t>& image, std::uint32_t width,
+                            std::uint32_t height, int x, int y,
+                            const std::array<std::uint8_t, 4>& color, float coverage) {
+    if (x < 0 || y < 0 || x >= static_cast<int>(width) || y >= static_cast<int>(height) || coverage <= 0.005F) return;
+    const auto offset = (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 4U;
+    const float alpha = (static_cast<float>(color[3]) / 255.0F) * std::min(1.0F, coverage);
+    const float invAlpha = 1.0F - alpha;
+    image[offset + 0] = static_cast<std::uint8_t>(color[0] * alpha + image[offset + 0] * invAlpha);
+    image[offset + 1] = static_cast<std::uint8_t>(color[1] * alpha + image[offset + 1] * invAlpha);
+    image[offset + 2] = static_cast<std::uint8_t>(color[2] * alpha + image[offset + 2] * invAlpha);
+    image[offset + 3] = static_cast<std::uint8_t>(std::min(255.0F, color[3] * coverage + image[offset + 3] * invAlpha));
 }
 
 void FillImageRect(std::vector<std::uint8_t>& image, std::uint32_t width,
@@ -506,14 +334,24 @@ void FillImageRoundedRect(std::vector<std::uint8_t>& image, std::uint32_t width,
                           std::uint32_t height, int x, int y, int rectWidth,
                           int rectHeight, int radius,
                           const std::array<std::uint8_t, 4>& color) {
+    const float r = static_cast<float>(radius);
     for (int row = 0; row < rectHeight; ++row) {
         for (int column = 0; column < rectWidth; ++column) {
             const int dx = column < radius ? radius - column - 1
                 : column >= rectWidth - radius ? column - (rectWidth - radius) : 0;
             const int dy = row < radius ? radius - row - 1
                 : row >= rectHeight - radius ? row - (rectHeight - radius) : 0;
-            if (dx * dx + dy * dy <= radius * radius)
+            if (dx == 0 && dy == 0) {
                 SetImagePixel(image, width, height, x + column, y + row, color);
+            } else {
+                const float dist = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                if (dist <= r - 0.75F) {
+                    SetImagePixel(image, width, height, x + column, y + row, color);
+                } else if (dist < r + 0.75F) {
+                    const float coverage = (r + 0.75F - dist) / 1.5F;
+                    BlendImagePixel(image, width, height, x + column, y + row, color, coverage);
+                }
+            }
         }
     }
 }
@@ -542,6 +380,411 @@ void DrawImageLabel(std::vector<std::uint8_t>& image, std::uint32_t width,
         }
         cursorX += advance;
     }
+}
+
+inline void SetMenuPixel(std::vector<std::uint8_t>& image, int x, int y,
+                         const std::array<std::uint8_t, 4>& color) {
+    SetImagePixel(image, kMenuTextureWidth, kMenuTextureHeight, x, y, color);
+}
+
+inline void DrawMenuLabel(std::vector<std::uint8_t>& image, const std::string& label,
+                          int centerX, int centerY, int scale) {
+    DrawImageLabel(image, kMenuTextureWidth, kMenuTextureHeight, label, centerX, centerY, scale, ui::kTextPrimary);
+}
+
+inline void SetSettingsPixel(std::vector<std::uint8_t>& image, int x, int y,
+                             const std::array<std::uint8_t, 4>& color) {
+    SetImagePixel(image, kSettingsTextureWidth, kSettingsTextureHeight, x, y, color);
+}
+
+inline void FillSettingsRect(std::vector<std::uint8_t>& image, int x, int y, int width, int height,
+                             const std::array<std::uint8_t, 4>& color) {
+    FillImageRect(image, kSettingsTextureWidth, kSettingsTextureHeight, x, y, width, height, color);
+}
+
+inline void FillSettingsRoundedRect(std::vector<std::uint8_t>& image, int x, int y,
+                                    int width, int height, int radius,
+                                    const std::array<std::uint8_t, 4>& color) {
+    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight, x, y, width, height, radius, color);
+}
+
+inline void DrawSettingsLabel(std::vector<std::uint8_t>& image, const std::string& label,
+                              int centerX, int centerY, int scale,
+                              const std::array<std::uint8_t, 4>& color) {
+    DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, label, centerX, centerY, scale, color);
+}
+
+// Geometric vector icons matching Phone Window navigation & grab footer
+inline void DrawIconBack(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                         int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int step = 0; step < 8; ++step) {
+        for (int thickness = -1; thickness <= 1; ++thickness) {
+            SetImagePixel(image, width, height, centerX - 4 + step + thickness, centerY - step, color);
+            SetImagePixel(image, width, height, centerX - 4 + step + thickness, centerY + step, color);
+        }
+    }
+}
+
+inline void DrawIconHome(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                         int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int dy = -8; dy <= 8; ++dy) {
+        for (int dx = -8; dx <= 8; ++dx) {
+            const int r2 = dx * dx + dy * dy;
+            if (r2 >= 32 && r2 <= 56) {
+                SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+            }
+        }
+    }
+}
+
+inline void DrawIconRecents(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                            int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int step = -6; step <= 6; ++step) {
+        for (int thickness = -1; thickness <= 0; ++thickness) {
+            SetImagePixel(image, width, height, centerX + step, centerY - 6 + thickness, color);
+            SetImagePixel(image, width, height, centerX + step, centerY + 6 + thickness, color);
+            SetImagePixel(image, width, height, centerX - 6 + thickness, centerY + step, color);
+            SetImagePixel(image, width, height, centerX + 6 + thickness, centerY + step, color);
+        }
+    }
+}
+
+inline void DrawIconKeyboard(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                             int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int step = -9; step <= 9; ++step) {
+        SetImagePixel(image, width, height, centerX + step, centerY - 6, color);
+        SetImagePixel(image, width, height, centerX + step, centerY + 6, color);
+    }
+    for (int step = -6; step <= 6; ++step) {
+        SetImagePixel(image, width, height, centerX - 9, centerY + step, color);
+        SetImagePixel(image, width, height, centerX + 9, centerY + step, color);
+    }
+    for (int kx : {-6, -2, 2, 6}) {
+        SetImagePixel(image, width, height, centerX + kx, centerY - 2, color);
+        SetImagePixel(image, width, height, centerX + kx + 1, centerY - 2, color);
+    }
+    for (int kx = -4; kx <= 4; ++kx) {
+        SetImagePixel(image, width, height, centerX + kx, centerY + 2, color);
+    }
+}
+
+inline void DrawIconClose(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                          int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int step = -6; step <= 6; ++step) {
+        for (int thickness = -1; thickness <= 1; ++thickness) {
+            SetImagePixel(image, width, height, centerX + step, centerY + step + thickness, color);
+            SetImagePixel(image, width, height, centerX + step, centerY - step + thickness, color);
+        }
+    }
+}
+
+inline void DrawIconGrabHandle(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                               int centerX, int centerY, int handleWidth, int handleHeight, int radius,
+                               const std::array<std::uint8_t, 4>& color) {
+    FillImageRoundedRect(image, width, height,
+                         centerX - handleWidth / 2, centerY - handleHeight / 2,
+                         handleWidth, handleHeight, radius, color);
+}
+
+inline void DrawIconResize(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                           int right, int bottom, const std::array<std::uint8_t, 4>& color) {
+    for (int step = 0; step < 14; ++step) {
+        for (int thickness = 0; thickness < 2; ++thickness) {
+            SetImagePixel(image, width, height, right - step, bottom - thickness, color);
+            SetImagePixel(image, width, height, right - thickness, bottom - step, color);
+        }
+    }
+}
+
+inline void DrawIconChevronRight(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                                 int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int step = -6; step <= 6; ++step) {
+        for (int thickness = -1; thickness <= 1; ++thickness) {
+            SetImagePixel(image, width, height, centerX - 3 + std::abs(step) + thickness, centerY + step, color);
+        }
+    }
+}
+
+inline void DrawIconMinus(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                          int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int dx = -7; dx <= 7; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+        }
+    }
+}
+
+inline void DrawIconPlus(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                         int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int dx = -7; dx <= 7; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+        }
+    }
+    for (int dy = -7; dy <= 7; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+        }
+    }
+}
+
+inline void DrawIconHeadset(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                            int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    FillImageRoundedRect(image, width, height, centerX - 14, centerY - 7, 28, 14, 4, color);
+    for (int t = -1; t <= 1; ++t) {
+        for (int dx = -20; dx < -14; ++dx) SetImagePixel(image, width, height, centerX + dx, centerY + t, color);
+        for (int dx = 14; dx <= 20; ++dx) SetImagePixel(image, width, height, centerX + dx, centerY + t, color);
+    }
+}
+
+inline void DrawIconWorld(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                          int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int dy = -9; dy <= 9; ++dy) {
+        for (int dx = -9; dx <= 9; ++dx) {
+            const int r2 = dx * dx + dy * dy;
+            if (r2 >= 64 && r2 <= 95) SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+        }
+    }
+    for (int dx = -8; dx <= 8; ++dx) {
+        SetImagePixel(image, width, height, centerX + dx, centerY, color);
+    }
+    for (int dy = -8; dy <= 8; ++dy) {
+        const int mx = static_cast<int>(std::round(4.0F * std::sqrt(std::max(0.0F, 1.0F - (dy * dy) / 64.0F))));
+        SetImagePixel(image, width, height, centerX - mx, centerY + dy, color);
+        SetImagePixel(image, width, height, centerX + mx, centerY + dy, color);
+    }
+}
+
+inline void DrawIconPhoneTrack(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                               int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int y = -9; y <= 9; ++y) {
+        SetImagePixel(image, width, height, centerX - 7, centerY + y, color);
+        SetImagePixel(image, width, height, centerX + 7, centerY + y, color);
+    }
+    for (int x = -6; x <= 6; ++x) {
+        SetImagePixel(image, width, height, centerX + x, centerY - 9, color);
+        SetImagePixel(image, width, height, centerX + x, centerY + 9, color);
+    }
+    SetImagePixel(image, width, height, centerX, centerY + 6, color);
+    SetImagePixel(image, width, height, centerX, centerY - 7, color);
+    for (int d = 0; d < 4; ++d) {
+        SetImagePixel(image, width, height, centerX - 11 + d, centerY - 11, color);
+        SetImagePixel(image, width, height, centerX - 11, centerY - 11 + d, color);
+        SetImagePixel(image, width, height, centerX + 11 - d, centerY - 11, color);
+        SetImagePixel(image, width, height, centerX + 11, centerY - 11 + d, color);
+        SetImagePixel(image, width, height, centerX - 11 + d, centerY + 11, color);
+        SetImagePixel(image, width, height, centerX - 11, centerY + 11 - d, color);
+        SetImagePixel(image, width, height, centerX + 11 - d, centerY + 11, color);
+        SetImagePixel(image, width, height, centerX + 11, centerY + 11 - d, color);
+    }
+}
+
+inline void DrawIconController(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                               int centerX, int centerY, bool isLeft, const std::array<std::uint8_t, 4>& color) {
+    for (int dy = -2; dy <= 9; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+            SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+        }
+    }
+    const int ringX = isLeft ? centerX - 2 : centerX + 2;
+    for (int dy = -10; dy <= -2; ++dy) {
+        for (int dx = -8; dx <= 8; ++dx) {
+            const int r2 = dx * dx + (dy + 5) * (dy + 5);
+            if (r2 >= 20 && r2 <= 36) {
+                SetImagePixel(image, width, height, ringX + dx, centerY + dy, color);
+            }
+        }
+    }
+}
+
+inline void DrawIconSettings(std::vector<std::uint8_t>& image, std::uint32_t width, std::uint32_t height,
+                             int centerX, int centerY, const std::array<std::uint8_t, 4>& color) {
+    for (int dy = -8; dy <= 8; ++dy) {
+        for (int dx = -8; dx <= 8; ++dx) {
+            const int r2 = dx * dx + dy * dy;
+            if ((r2 >= 18 && r2 <= 42) || ((std::abs(dx) <= 2 || std::abs(dy) <= 2) && r2 <= 64)) {
+                SetImagePixel(image, width, height, centerX + dx, centerY + dy, color);
+            }
+        }
+    }
+}
+
+std::vector<std::uint8_t> MakeSettingsTexture(const phonecast::vr::SettingsMenuView& view) {
+    std::vector<std::uint8_t> image(
+        static_cast<std::size_t>(kSettingsTextureWidth) * kSettingsTextureHeight * 4U, 0);
+
+    // Main window container
+    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                         4, 4, static_cast<int>(kSettingsTextureWidth) - 8,
+                         static_cast<int>(kSettingsTextureHeight) - 8, 22, ui::kBgDark);
+
+    // Top Header surface
+    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                         10, 10, static_cast<int>(kSettingsTextureWidth) - 20, 84, 16, ui::kBgSurface);
+    FillImageRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                  10, 10, static_cast<int>(kSettingsTextureWidth) - 20, 2, ui::kAccentGlow);
+
+    if (view.title != "PHONECAST SETTINGS") {
+        // Back button (<) on the left
+        FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                             20, 32, 44, 36, 8, ui::kBgElevated);
+        DrawIconBack(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                     20 + 22, 32 + 18, ui::kTextPrimary);
+    }
+    DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.title,
+                   static_cast<int>(kSettingsTextureWidth) / 2, 52,
+                   view.title.size() > 18 ? 2 : 3, ui::kTextPrimary);
+
+    // Close button (×) on the far right
+    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                         static_cast<int>(kSettingsTextureWidth) - 64, 32, 44, 36, 8, ui::kBgElevated);
+    DrawIconClose(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                  static_cast<int>(kSettingsTextureWidth) - 64 + 22, 32 + 18, ui::kTextPrimary);
+
+    const bool root = view.title == "PHONECAST SETTINGS";
+    if (root) {
+        DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, "DISPLAY", 58, 114, 1, ui::kTextSecondary);
+        constexpr int firstCenter = 152;
+        constexpr int rowStep = 76;
+        for (std::size_t index = 0; index < 7 && index < view.labels.size(); ++index) {
+            const int centerY = firstCenter + static_cast<int>(index) * rowStep;
+            const bool isSelected = index == view.selectedIndex;
+            FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                 16, centerY - 32, static_cast<int>(kSettingsTextureWidth) - 32, 64, 12,
+                                 isSelected ? ui::kBgHover : ui::kBgElevated);
+            if (isSelected) {
+                FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                     16, centerY - 20, 4, 40, 2, ui::kAccentCyan);
+            }
+            DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.labels[index],
+                           158, centerY, view.labels[index].size() > 15 ? 1 : 2, ui::kTextPrimary);
+            if (index < view.values.size())
+                DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.values[index],
+                               390, centerY, view.values[index].size() > 12 ? 1 : 2, ui::kTextSecondary);
+            DrawIconChevronRight(image, kSettingsTextureWidth, kSettingsTextureHeight, 474, centerY, ui::kTextSecondary);
+        }
+        const bool aboutSelected = view.selectedIndex == 10;
+        FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                             16, 672, 480, 46, 12,
+                             aboutSelected ? ui::kBgHover : ui::kBgElevated);
+        if (aboutSelected) {
+            FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                 16, 675, 4, 40, 2, ui::kAccentCyan);
+        }
+        DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, "ABOUT / EXPORT LOGS", 256, 695, 2, ui::kTextPrimary);
+        constexpr std::array<int, 3> actionLeft{16, 174, 332};
+        constexpr std::array<int, 3> actionWidth{142, 142, 164};
+        for (std::size_t action = 0; action < 3; ++action) {
+            const std::size_t index = action + 7;
+            const bool isActionSelected = index == view.selectedIndex;
+            FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                 actionLeft[action], 734, actionWidth[action], 78, 14,
+                                 isActionSelected
+                                     ? (index == 9 ? ui::kAccentCyan : ui::kBgHover)
+                                     : ui::kBgElevated);
+            const auto color = index == 7 ? ui::kDanger : (index == 9 && isActionSelected ? ui::kBgDark : ui::kTextPrimary);
+            DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.labels[index],
+                           actionLeft[action] + actionWidth[action] / 2, 773,
+                           view.labels[index].size() > 7 ? 1 : 2, color);
+            if (index == 7 && !view.values[index].empty())
+                DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.values[index],
+                               actionLeft[action] + actionWidth[action] / 2, 796, 1, ui::kDanger);
+        }
+    } else {
+        constexpr int rowHeight = 82;
+        constexpr int firstRow = 126;
+        for (std::size_t index = 0; index < view.labels.size(); ++index) {
+            const int centerY = firstRow + static_cast<int>(index) * rowHeight;
+            const bool isSelected = index == view.selectedIndex;
+            FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                 16, centerY - 34, static_cast<int>(kSettingsTextureWidth) - 32, 68, 12,
+                                 isSelected ? ui::kBgHover : ui::kBgElevated);
+            if (isSelected) {
+                FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                     16, centerY - 22, 4, 44, 2, ui::kAccentCyan);
+            }
+            DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.labels[index],
+                           152, centerY - 12, view.labels[index].size() > 15 ? 1 : 2, ui::kTextPrimary);
+            const bool adjustable = view.title != "ABOUT PHONECAST" && index < view.values.size() &&
+                                    !view.values[index].empty() && view.values[index] != ">";
+            if (index < view.values.size()) {
+                if (view.values[index] == ">") {
+                    DrawIconChevronRight(image, kSettingsTextureWidth, kSettingsTextureHeight, 464, centerY - 12, ui::kTextSecondary);
+                } else {
+                    DrawImageLabel(image, kSettingsTextureWidth, kSettingsTextureHeight, view.values[index],
+                                   372, centerY - 12, view.values[index].size() > 13 ? 1 : 2, ui::kAccentCyan);
+                }
+            }
+            if (adjustable) {
+                FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                     18, centerY + 2, 54, 30, 8, ui::kBgSurface);
+                FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                     440, centerY + 2, 54, 30, 8, ui::kBgSurface);
+                DrawIconMinus(image, kSettingsTextureWidth, kSettingsTextureHeight, 45, centerY + 17, ui::kTextPrimary);
+                DrawIconPlus(image, kSettingsTextureWidth, kSettingsTextureHeight, 467, centerY + 17, ui::kTextPrimary);
+                if (index < view.normalizedValues.size() && view.normalizedValues[index] >= 0.0F) {
+                    constexpr int trackLeft = 88;
+                    constexpr int trackWidth = 336;
+                    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                         trackLeft, centerY + 13, trackWidth, 8, 4, ui::kBgSurface);
+                    const int knobX = trackLeft + static_cast<int>(
+                        Clamp(view.normalizedValues[index], 0.0F, 1.0F) * trackWidth);
+                    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                                         knobX - 8, centerY + 5, 16, 24, 7, ui::kAccentCyan);
+                }
+            }
+        }
+    }
+
+    // ROW 2: Dedicated Grab & Resize Bar matching the Phone Window
+    constexpr int grabRowY = static_cast<int>(kSettingsTextureHeight) - 70;
+    constexpr int grabCenterY = grabRowY + 35;
+    FillImageRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                  0, grabRowY, static_cast<int>(kSettingsTextureWidth), 70, ui::kBgDark);
+    FillImageRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                  0, grabRowY, static_cast<int>(kSettingsTextureWidth), 1, ui::kBorderSubtle);
+
+    constexpr int handleWidth = 180;
+    constexpr int handleHeight = 10;
+    DrawIconGrabHandle(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                       static_cast<int>(kSettingsTextureWidth) / 2, grabCenterY,
+                       handleWidth, handleHeight, 5, ui::kHandleNormal);
+
+    // Resize button in bottom-right corner of Row 2
+    constexpr int resizeLeft = static_cast<int>(kSettingsTextureWidth) - 44;
+    constexpr int resizeY = grabRowY + (70 - 32) / 2;
+    FillImageRoundedRect(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                         resizeLeft, resizeY, 32, 32, 6, ui::kBgElevated);
+    DrawIconResize(image, kSettingsTextureWidth, kSettingsTextureHeight,
+                   resizeLeft + 24, resizeY + 24, ui::kTextPrimary);
+    return image;
+}
+
+inline void SetGesturePixel(std::vector<std::uint8_t>& image, int x, int y,
+                            const std::array<std::uint8_t, 4>& color) {
+    SetImagePixel(image, kGestureTextureSize, kGestureTextureSize, x, y, color);
+}
+
+std::vector<std::uint8_t> MakeGestureProgressTexture(int completedSteps) {
+    std::vector<std::uint8_t> image(
+        static_cast<std::size_t>(kGestureTextureSize) * kGestureTextureSize * 4U, 0);
+    const float center = static_cast<float>(kGestureTextureSize) * 0.5F;
+    for (std::uint32_t y = 0; y < kGestureTextureSize; ++y) {
+        for (std::uint32_t x = 0; x < kGestureTextureSize; ++x) {
+            const float dx = static_cast<float>(x) - center;
+            const float dy = center - static_cast<float>(y);
+            const float radius = std::sqrt(dx * dx + dy * dy);
+            if (radius < 43.0F || radius > 57.0F) continue;
+            float angle = std::atan2(dx, dy);
+            if (angle < 0.0F) angle += 2.0F * kPi;
+            const int step = static_cast<int>(angle / (2.0F * kPi) * kGestureProgressSteps);
+            const auto color = step < completedSteps
+                ? std::array<std::uint8_t, 4>{35, 175, 245, 255}
+                : std::array<std::uint8_t, 4>{70, 82, 98, 220};
+            SetGesturePixel(image, static_cast<int>(x), static_cast<int>(y), color);
+        }
+    }
+    return image;
 }
 
 std::string NotificationLine(const std::string& value, std::size_t maximumCharacters) {
@@ -611,17 +854,15 @@ std::vector<std::uint8_t> MakeNotificationTexture(
 void DrawGrabFooter(phonecast::core::VideoFrame& composite,
                     std::uint32_t phoneHeight,
                     FooterHoverTarget hover = FooterHoverTarget::None) {
-    constexpr std::array<std::uint8_t, 4> navBackground{11, 21, 34, 250}; // #0B1522 Dark Navy
-    constexpr std::array<std::uint8_t, 4> grabBackground{7, 13, 23, 250}; // #070D17 Deep Navy
-    constexpr std::array<std::uint8_t, 4> topAccent{42, 188, 251, 220};  // #2ABCFB Accent
-    constexpr std::array<std::uint8_t, 4> rowDivider{24, 40, 59, 180};   // #18283B Surface High
-    constexpr std::array<std::uint8_t, 4> buttonNormal{24, 40, 59, 220};
-    constexpr std::array<std::uint8_t, 4> buttonHover{42, 74, 112, 245};
-    constexpr std::array<std::uint8_t, 4> buttonCloseHover{180, 48, 60, 245};
-    constexpr std::array<std::uint8_t, 4> iconColor{245, 249, 255, 250};
-    const std::array<std::uint8_t, 4> handleColor = hover == FooterHoverTarget::Grab
-        ? std::array<std::uint8_t, 4>{42, 188, 251, 255}
-        : std::array<std::uint8_t, 4>{167, 187, 205, 220};
+    const auto navBackground = ui::kBgSurface;
+    const auto grabBackground = ui::kBgDark;
+    const auto topAccent = ui::kAccentGlow;
+    const auto rowDivider = ui::kBorderSubtle;
+    const auto buttonNormal = ui::kBgElevated;
+    const auto buttonHover = ui::kBgHover;
+    const auto buttonCloseHover = ui::kCloseHover;
+    const auto iconColor = ui::kTextPrimary;
+    const auto handleColor = hover == FooterHoverTarget::Grab ? ui::kHandleHover : ui::kHandleNormal;
 
     const int phoneH = static_cast<int>(phoneHeight);
     const int navH = static_cast<int>(kNavBarHeightPixels);
@@ -647,31 +888,14 @@ void DrawGrabFooter(phonecast::core::VideoFrame& composite,
     const int backLeft = 8;
     const auto backBtnColor = hover == FooterHoverTarget::Back ? buttonHover : buttonNormal;
     FillImageRoundedRect(composite.pixels, composite.width, composite.height, backLeft, btnY, btnW, btnH, btnRadius, backBtnColor);
-    const int backCenterX = backLeft + btnW / 2;
-    for (int step = 0; step < 8; ++step) {
-        for (int thickness = -1; thickness <= 1; ++thickness) {
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          backCenterX - 4 + step + thickness, centerY - step, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          backCenterX - 4 + step + thickness, centerY + step, iconColor);
-        }
-    }
+    DrawIconBack(composite.pixels, composite.width, composite.height, backLeft + btnW / 2, centerY, iconColor);
 
     // Button 2: Android Home (◯)
     const int homeLeft = backLeft + btnW + 6;
     if (homeLeft + btnW <= compW - 60) {
         const auto homeBtnColor = hover == FooterHoverTarget::Home ? buttonHover : buttonNormal;
         FillImageRoundedRect(composite.pixels, composite.width, composite.height, homeLeft, btnY, btnW, btnH, btnRadius, homeBtnColor);
-        const int homeCenterX = homeLeft + btnW / 2;
-        for (int dy = -8; dy <= 8; ++dy) {
-            for (int dx = -8; dx <= 8; ++dx) {
-                const int r2 = dx * dx + dy * dy;
-                if (r2 >= 32 && r2 <= 56) {
-                    SetImagePixel(composite.pixels, composite.width, composite.height,
-                                  homeCenterX + dx, centerY + dy, iconColor);
-                }
-            }
-        }
+        DrawIconHome(composite.pixels, composite.width, composite.height, homeLeft + btnW / 2, centerY, iconColor);
     }
 
     // Button 3: Android Recents (▢)
@@ -679,19 +903,7 @@ void DrawGrabFooter(phonecast::core::VideoFrame& composite,
     if (recentsLeft + btnW <= compW - 60) {
         const auto recentsBtnColor = hover == FooterHoverTarget::Recents ? buttonHover : buttonNormal;
         FillImageRoundedRect(composite.pixels, composite.width, composite.height, recentsLeft, btnY, btnW, btnH, btnRadius, recentsBtnColor);
-        const int recentsCenterX = recentsLeft + btnW / 2;
-        for (int step = -6; step <= 6; ++step) {
-            for (int thickness = -1; thickness <= 0; ++thickness) {
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + step, centerY - 6 + thickness, iconColor);
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + step, centerY + 6 + thickness, iconColor);
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX - 6 + thickness, centerY + step, iconColor);
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + 6 + thickness, centerY + step, iconColor);
-            }
-        }
+        DrawIconRecents(composite.pixels, composite.width, composite.height, recentsLeft + btnW / 2, centerY, iconColor);
     }
 
     // Button 4: SteamVR Keyboard (⌨)
@@ -699,47 +911,22 @@ void DrawGrabFooter(phonecast::core::VideoFrame& composite,
     if (kbLeft + btnW <= compW - 60) {
         const auto kbBtnColor = hover == FooterHoverTarget::Keyboard ? buttonHover : buttonNormal;
         FillImageRoundedRect(composite.pixels, composite.width, composite.height, kbLeft, btnY, btnW, btnH, btnRadius, kbBtnColor);
-        const int kbCenterX = kbLeft + btnW / 2;
-        for (int step = -9; step <= 9; ++step) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + step, centerY - 6, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + step, centerY + 6, iconColor);
-        }
-        for (int step = -6; step <= 6; ++step) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX - 9, centerY + step, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + 9, centerY + step, iconColor);
-        }
-        for (int kx : {-6, -2, 2, 6}) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY - 2, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx + 1, centerY - 2, iconColor);
-        }
-        for (int kx = -4; kx <= 4; ++kx) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY + 2, iconColor);
-        }
+        DrawIconKeyboard(composite.pixels, composite.width, composite.height, kbLeft + btnW / 2, centerY, iconColor);
     }
 
     // Button 5: Close (×) placed on the far right of the Nav Row
     const int closeLeft = std::max(0, compW - btnW - 8);
     const auto closeBtnColor = hover == FooterHoverTarget::Close ? buttonCloseHover : buttonNormal;
     FillImageRoundedRect(composite.pixels, composite.width, composite.height, closeLeft, btnY, btnW, btnH, btnRadius, closeBtnColor);
-    const int closeCenterX = closeLeft + btnW / 2;
-    for (int step = -6; step <= 6; ++step) {
-        for (int thickness = -1; thickness <= 1; ++thickness) {
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          closeCenterX + step, centerY + step + thickness, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          closeCenterX + step, centerY - step + thickness, iconColor);
-        }
-    }
+    DrawIconClose(composite.pixels, composite.width, composite.height, closeLeft + btnW / 2, centerY, iconColor);
 
     // ROW 2: Dedicated Grab & Resize Bar
     const int grabRowY = phoneH + navH;
     const int grabCenterY = grabRowY + grabH / 2;
     const int handleWidth = std::max(120, std::min(240, compW * 4 / 10));
     constexpr int handleHeight = 10;
-    const int handleLeft = (compW - handleWidth) / 2;
-    FillImageRoundedRect(composite.pixels, composite.width, composite.height,
-                         handleLeft, grabCenterY - handleHeight / 2,
-                         handleWidth, handleHeight, 5, handleColor);
+    DrawIconGrabHandle(composite.pixels, composite.width, composite.height,
+                       compW / 2, grabCenterY, handleWidth, handleHeight, 5, handleColor);
 
     // Resize button in bottom-right corner of Row 2
     const int resizeLeft = std::max(0, compW - 36);
@@ -747,16 +934,8 @@ void DrawGrabFooter(phonecast::core::VideoFrame& composite,
     const auto resizeBtnColor = hover == FooterHoverTarget::Resize ? buttonHover : buttonNormal;
     FillImageRoundedRect(composite.pixels, composite.width, composite.height,
                          resizeLeft, resizeY, 30, 30, 6, resizeBtnColor);
-    const int resizeRight = resizeLeft + 22;
-    const int resizeBottom = resizeY + 22;
-    for (int step = 0; step < 14; ++step) {
-        for (int thickness = 0; thickness < 2; ++thickness) {
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          resizeRight - step, resizeBottom - thickness, iconColor);
-            SetImagePixel(composite.pixels, composite.width, composite.height,
-                          resizeRight - thickness, resizeBottom - step, iconColor);
-        }
-    }
+    DrawIconResize(composite.pixels, composite.width, composite.height,
+                   resizeLeft + 22, resizeY + 22, iconColor);
 }
 
 void AddGrabHandle(const phonecast::core::VideoFrame& frame,
@@ -776,51 +955,57 @@ std::vector<std::uint8_t> MakeDashboardTexture(
         bool remoteStatusKnown, bool remoteAppEnabled,
         bool remoteAccessibilityEnabled, const std::string& pairingCode,
         int hoveredCell = -1) {
-    constexpr std::array<std::uint8_t, 4> background{10, 25, 42, 255};
-    constexpr std::array<std::uint8_t, 4> header{10, 24, 40, 255};
-    constexpr std::array<std::uint8_t, 4> card{27, 49, 76, 255};
-    constexpr std::array<std::uint8_t, 4> cardHover{42, 74, 112, 255};
-    constexpr std::array<std::uint8_t, 4> primary{48, 153, 245, 255};
-    constexpr std::array<std::uint8_t, 4> text{224, 235, 249, 255};
-    constexpr std::array<std::uint8_t, 4> secondary{161, 184, 211, 255};
-    constexpr std::array<std::uint8_t, 4> warning{255, 187, 92, 255};
-    constexpr std::array<std::uint8_t, 4> danger{255, 119, 126, 255};
     std::vector<std::uint8_t> image(
         static_cast<std::size_t>(kDashboardTextureWidth) * kDashboardTextureHeight * 4U, 0);
+
+    // Main window container (#070D17 Deep Navy container)
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         4, 4, 1016, 592, 24, background);
+                         4, 4, 1016, 592, 24, ui::kBgDark);
+
+    // Top Header surface (#0B1522 Dark Navy surface)
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         8, 8, 1008, 96, 20, header);
+                         8, 8, 1008, 96, 20, ui::kBgSurface);
+    // Top cyan accent line (#2ABCFB)
     FillImageRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                  8, 100, 1008, 3, primary);
+                  8, 8, 1008, 2, ui::kAccentGlow);
+
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "PHONECAST", 150, 50, 4, text);
+                   "PHONECAST", 150, 52, 4, ui::kTextPrimary);
+
     const std::string pairStatus = pairingCode.empty()
         ? "PAIRING CODE PENDING" : "PAIRED  CODE " + pairingCode;
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   pairStatus, 482, 50, 2, secondary);
+                   pairStatus, 482, 52, 2, ui::kTextSecondary);
+
+    // Visibility status badge
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                         790, 24, 202, 54, 25, card);
+                         790, 24, 202, 54, 25, ui::kBgElevated);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    currentlyVisible ? "PHONE VISIBLE" : "PHONE HIDDEN",
-                   891, 51, 2, currentlyVisible ? primary : warning);
+                   891, 51, 2, currentlyVisible ? ui::kAccentCyan : ui::kWarning);
 
+    // Large SHOW/HIDE card (target 0)
     const auto& show = kDashboardTargets[0];
     const bool showHovered = hoveredCell == 0;
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
                          show.left, show.top, show.width, show.height, 22,
-                         showHovered ? cardHover : card);
+                         showHovered ? ui::kBgHover : ui::kBgElevated);
+    if (currentlyVisible) {
+        FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
+                             show.left, show.top + 24, 4, show.height - 48, 2, ui::kAccentCyan);
+    }
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    currentlyVisible ? "HIDE PHONE" : "SHOW PHONE",
-                   show.left + show.width / 2, show.top + 70, 4, text);
+                   show.left + show.width / 2, show.top + 70, 4, ui::kTextPrimary);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
                    currentlyVisible ? "KEEP PLACEMENT" : "OPEN BESIDE MENU",
-                   show.left + show.width / 2, show.top + 120, 2, secondary);
+                   show.left + show.width / 2, show.top + 120, 2, ui::kTextSecondary);
 
+    // Section header
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "PLACEMENT", 490, 126, 2, secondary);
-    constexpr std::array<const char*, 5> placementLabels{
-        "HEAD", "WORLD", "PHONE TRACK", "LEFT DOCK", "RIGHT DOCK"};
+                   "PLACEMENT", 490, 126, 2, ui::kTextSecondary);
+
+    // Placement Mode buttons (targets 1, 2, 3, 5, 6)
     constexpr std::array<std::size_t, 5> placementTargets{1, 2, 3, 5, 6};
     for (std::size_t index = 0; index < placementTargets.size(); ++index) {
         const auto& target = kDashboardTargets[placementTargets[index]];
@@ -831,40 +1016,61 @@ std::vector<std::uint8_t> MakeDashboardTexture(
             (index == 3 && placementMode == phonecast::vr::PlacementMode::LeftControllerLocked) ||
             (index == 4 && placementMode == phonecast::vr::PlacementMode::RightControllerLocked);
         const bool hovered = hoveredCell >= 0 && static_cast<std::size_t>(hoveredCell) == placementTargets[index];
+
+        const auto cardColor = selected ? ui::kAccentCyan : (hovered ? ui::kBgHover : ui::kBgElevated);
+        const auto textColor = selected ? ui::kBgDark : ui::kTextPrimary;
+        const auto iconColor = selected ? ui::kBgDark : (hovered ? ui::kAccentCyan : ui::kTextPrimary);
+
         FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
                              target.left, target.top, target.width, target.height, 16,
-                             selected ? primary : (hovered ? cardHover : card));
-        DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                       placementLabels[index], target.left + target.width / 2,
-                       target.top + target.height / 2,
-                       std::string(placementLabels[index]).size() > 7 ? 2 : 3,
-                       selected ? header : text);
+                             cardColor);
+
+        const int centerY = target.top + target.height / 2;
+        if (index == 0) { // HEAD
+            DrawIconHeadset(image, kDashboardTextureWidth, kDashboardTextureHeight, target.left + 36, centerY, iconColor);
+            DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight, "HEAD", target.left + 110, centerY, 3, textColor);
+        } else if (index == 1) { // WORLD
+            DrawIconWorld(image, kDashboardTextureWidth, kDashboardTextureHeight, target.left + 36, centerY, iconColor);
+            DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight, "WORLD", target.left + 110, centerY, 3, textColor);
+        } else if (index == 2) { // PHONE TRACK
+            DrawIconPhoneTrack(image, kDashboardTextureWidth, kDashboardTextureHeight, target.left + 34, centerY, iconColor);
+            DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight, "TRACKED", target.left + 114, centerY, 2, textColor);
+        } else if (index == 3) { // LEFT DOCK
+            DrawIconController(image, kDashboardTextureWidth, kDashboardTextureHeight, target.left + 44, centerY, true, iconColor);
+            DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight, "LEFT DOCK", target.left + 160, centerY, 2, textColor);
+        } else if (index == 4) { // RIGHT DOCK
+            DrawIconController(image, kDashboardTextureWidth, kDashboardTextureHeight, target.left + 44, centerY, false, iconColor);
+            DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight, "RIGHT DOCK", target.left + 160, centerY, 2, textColor);
+        }
     }
 
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "CLOSE DASHBOARD FOR HOTKEYS", 204, 350, 2, primary);
+                   "CLOSE DASHBOARD FOR HOTKEYS", 204, 350, 2, ui::kAccentCyan);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "HOLD EITHER STICK", 204, 382, 2, secondary);
+                   "HOLD EITHER STICK", 204, 382, 2, ui::kTextSecondary);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "TOGGLE PHONE", 204, 414, 2, secondary);
+                   "TOGGLE PHONE", 204, 414, 2, ui::kTextSecondary);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "DOUBLE CLICK DOCK", 204, 446, 2, secondary);
+                   "DOUBLE CLICK DOCK", 204, 446, 2, ui::kTextSecondary);
+
     const auto& settings = kDashboardTargets[7];
     const auto& quit = kDashboardTargets[8];
     const bool settingsHovered = hoveredCell == 7;
     const bool quitHovered = hoveredCell == 8;
+
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
                          settings.left, settings.top, settings.width, settings.height, 18,
-                         settingsHovered ? cardHover : card);
+                         settingsHovered ? ui::kBgHover : ui::kBgElevated);
+    DrawIconSettings(image, kDashboardTextureWidth, kDashboardTextureHeight, settings.left + 54, settings.top + settings.height / 2, settingsHovered ? ui::kAccentCyan : ui::kTextPrimary);
+    DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
+                   "SETTINGS", settings.left + 190, settings.top + settings.height / 2, 3, ui::kTextPrimary);
+
     FillImageRoundedRect(image, kDashboardTextureWidth, kDashboardTextureHeight,
                          quit.left, quit.top, quit.width, quit.height, 18,
-                         quitHovered ? cardHover : card);
+                         quitHovered ? ui::kCloseHover : ui::kBgElevated);
+    DrawIconClose(image, kDashboardTextureWidth, kDashboardTextureHeight, quit.left + 44, quit.top + quit.height / 2, quitHovered ? ui::kTextPrimary : ui::kDanger);
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "SETTINGS", settings.left + settings.width / 2,
-                   settings.top + settings.height / 2, 3, text);
-    DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   "QUIT", quit.left + quit.width / 2,
-                   quit.top + quit.height / 2, 3, danger);
+                   "QUIT", quit.left + 114, quit.top + quit.height / 2, 3, quitHovered ? ui::kTextPrimary : ui::kDanger);
 
     std::string controlStatus = "CONTROL STATUS PENDING";
     if (remoteStatusKnown) {
@@ -878,9 +1084,14 @@ std::vector<std::uint8_t> MakeDashboardTexture(
             controlStatus = "ENABLE ACCESSIBILITY";
     }
     DrawImageLabel(image, kDashboardTextureWidth, kDashboardTextureHeight,
-                   controlStatus, 512, 556, 2,
+                   controlStatus, 512, 552, 2,
                    remoteStatusKnown && remoteAppEnabled && remoteAccessibilityEnabled
-                       ? primary : warning);
+                       ? ui::kAccentCyan : ui::kWarning);
+
+    // Decorative Signature Grab Handle at bottom
+    DrawIconGrabHandle(image, kDashboardTextureWidth, kDashboardTextureHeight,
+                       kDashboardTextureWidth / 2, 578, 200, 8, 4, ui::kBorderSubtle);
+
     return image;
 }
 
@@ -924,9 +1135,12 @@ std::vector<std::uint8_t> MakeRadialMenuTexture(int selected, bool currentlyVisi
     const int cellHeight = (static_cast<int>(kMenuTextureHeight) - margin * 2 - gap * (kMenuRows - 1)) / kMenuRows;
     std::vector<std::uint8_t> image(
         static_cast<std::size_t>(kMenuTextureWidth) * kMenuTextureHeight * 4U, 0);
-    for (std::uint32_t y = 0; y < kMenuTextureHeight; ++y)
-        for (std::uint32_t x = 0; x < kMenuTextureWidth; ++x)
-            SetMenuPixel(image, static_cast<int>(x), static_cast<int>(y), {8, 14, 24, 250});
+
+    FillImageRoundedRect(image, kMenuTextureWidth, kMenuTextureHeight,
+                         4, 4, static_cast<int>(kMenuTextureWidth) - 8,
+                         static_cast<int>(kMenuTextureHeight) - 8, 20, ui::kBgDark);
+    FillImageRect(image, kMenuTextureWidth, kMenuTextureHeight,
+                  8, 8, static_cast<int>(kMenuTextureWidth) - 16, 2, ui::kAccentGlow);
 
     for (int index = 0; index < kMenuColumns * kMenuRows; ++index) {
         const int column = index % kMenuColumns;
@@ -934,18 +1148,17 @@ std::vector<std::uint8_t> MakeRadialMenuTexture(int selected, bool currentlyVisi
         const int left = margin + column * (cellWidth + gap);
         const int top = margin + row * (cellHeight + gap);
         const bool populated = index < static_cast<int>(kMenuLabels.size());
-        const std::array<std::uint8_t, 4> color = !populated
-            ? std::array<std::uint8_t, 4>{12, 20, 32, 245}
-            : index == selected
-                ? std::array<std::uint8_t, 4>{28, 145, 235, 255}
-                : std::array<std::uint8_t, 4>{25, 42, 64, 250};
-        for (int y = top; y < top + cellHeight; ++y)
-            for (int x = left; x < left + cellWidth; ++x)
-                SetMenuPixel(image, x, y, color);
+        const bool isSelected = index == selected;
+        const auto color = !populated
+            ? ui::kBgDark
+            : isSelected
+                ? ui::kAccentCyan
+                : ui::kBgElevated;
+        FillImageRoundedRect(image, kMenuTextureWidth, kMenuTextureHeight, left, top, cellWidth, cellHeight, 14, color);
         if (!populated) continue;
         const std::string label = index == 0 && currentlyVisible ? "HIDE" : kMenuLabels[index];
-        DrawMenuLabel(image, label, left + cellWidth / 2, top + cellHeight / 2,
-                      label.size() > 6 ? 2 : 3);
+        DrawImageLabel(image, kMenuTextureWidth, kMenuTextureHeight, label, left + cellWidth / 2, top + cellHeight / 2,
+                       label.size() > 6 ? 2 : 3, isSelected ? ui::kBgDark : ui::kTextPrimary);
     }
     return image;
 }
@@ -1928,7 +2141,32 @@ public:
         return y >= static_cast<int>(kSettingsTextureHeight) - 70;
     }
 
+    bool IsSettingsResizeHandle(float mouseX, float mouseY) const {
+        const int x = static_cast<int>(mouseX);
+        const int y = static_cast<int>(kSettingsTextureHeight - mouseY);
+        return y >= static_cast<int>(kSettingsTextureHeight) - 70 &&
+               x >= static_cast<int>(kSettingsTextureWidth) - 60;
+    }
+
     void QueueSettingsLaserClick(float mouseX, float mouseY) {
+        const int y = static_cast<int>(kSettingsTextureHeight - mouseY);
+        // Header navigation (Back button on the left, Close button on the right)
+        if (y >= 16 && y <= 86) {
+            if (mouseX <= 72.0F && settingsMenuView.title != "PHONECAST SETTINGS") {
+                settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F};
+                return;
+            }
+            if (mouseX >= static_cast<float>(kSettingsTextureWidth) - 72.0F) {
+                if (settingsMenuView.title == "PHONECAST SETTINGS") {
+                    overlayApi->HideOverlay(settingsOverlay);
+                    settingsMenuVisible = false;
+                } else {
+                    settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F};
+                }
+                return;
+            }
+        }
+
         const int row = SettingsRow(mouseX, mouseY);
         if (row < 0) return;
         settingsLaserTargetRow = row;
@@ -2375,6 +2613,26 @@ public:
         logger.Log(core::LogLevel::Info, "openvr", "Overlay resize ended and was saved.");
     }
 
+    void BeginSettingsResize(float overlayX) {
+        settingsResizing = true;
+        settingsResizeStartX = overlayX;
+        overlayApi->GetOverlayWidthInMeters(settingsOverlay, &settingsResizeStartWidthMeters);
+        logger.Log(core::LogLevel::Info, "openvr", "Settings overlay resize started.");
+    }
+
+    void UpdateSettingsResize(float overlayX) {
+        if (!settingsResizing) return;
+        const float delta = (overlayX - settingsResizeStartX) / static_cast<float>(kSettingsTextureWidth);
+        const float newWidth = Clamp(settingsResizeStartWidthMeters * (1.0F + delta * 2.0F), 0.20F, 1.20F);
+        overlayApi->SetOverlayWidthInMeters(settingsOverlay, newWidth);
+    }
+
+    void EndSettingsResize() {
+        if (!settingsResizing) return;
+        settingsResizing = false;
+        logger.Log(core::LogLevel::Info, "openvr", "Settings overlay resize ended.");
+    }
+
     void BeginGrab(vr::TrackedDeviceIndex_t device) {
         device = ResolvePointerDevice(device, overlay);
         vr::HmdMatrix34_t controllerPose{};
@@ -2523,6 +2781,9 @@ public:
     bool settingsWorldTransformValid{false};
     vr::TrackedDeviceIndex_t settingsGrabbedDevice{vr::k_unTrackedDeviceIndexInvalid};
     vr::HmdMatrix34_t settingsGrabRelative{};
+    bool settingsResizing{false};
+    float settingsResizeStartX{0.0F};
+    float settingsResizeStartWidthMeters{0.34F};
     bool radialMenuVisible{false};
     bool radialMenuLeft{true};
     bool radialAwaitRelease{false};
@@ -2959,14 +3220,21 @@ bool OpenVrOverlayRenderer::PumpEvents() {
         } else if (event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
             impl_->TriggerHaptic(impl_->settingsOverlay, 0.025F, 70.0F, 0.5F, event.trackedDeviceIndex);
-            if (impl_->IsSettingsGrabHandle(event.data.mouse.y))
+            if (impl_->IsSettingsResizeHandle(event.data.mouse.x, event.data.mouse.y))
+                impl_->BeginSettingsResize(event.data.mouse.x);
+            else if (impl_->IsSettingsGrabHandle(event.data.mouse.y))
                 impl_->BeginSettingsGrab(event.trackedDeviceIndex);
             else
                 impl_->QueueSettingsLaserClick(event.data.mouse.x, event.data.mouse.y);
         } else if (event.eventType == vr::VREvent_MouseButtonUp &&
-                   (event.data.mouse.button & vr::VRMouseButton_Left) != 0 &&
-                   impl_->settingsGrabbedDevice != vr::k_unTrackedDeviceIndexInvalid) {
-            impl_->EndSettingsGrab(event.trackedDeviceIndex);
+                   (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            if (impl_->settingsResizing)
+                impl_->EndSettingsResize();
+            if (impl_->settingsGrabbedDevice != vr::k_unTrackedDeviceIndexInvalid)
+                impl_->EndSettingsGrab(event.trackedDeviceIndex);
+        } else if (event.eventType == vr::VREvent_MouseMove) {
+            if (impl_->settingsResizing)
+                impl_->UpdateSettingsResize(event.data.mouse.x);
         } else if (event.eventType == vr::VREvent_ScrollSmooth ||
                    event.eventType == vr::VREvent_ScrollDiscrete) {
             impl_->QueueDragScroll(event, true);
