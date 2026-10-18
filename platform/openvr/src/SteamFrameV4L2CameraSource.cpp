@@ -170,6 +170,10 @@ public:
         ReleaseStreaming();
     }
 
+    const char* GetSourceName() const {
+        return devicePath.empty() ? "Steam Frame V4L2" : devicePath.c_str();
+    }
+
     bool HasCamera() {
         if (!devicePath.empty()) return true;
         devicePath = FindSteamFrameCameraDevice();
@@ -515,6 +519,7 @@ std::string SteamFrameV4L2CameraSource::FindSteamFrameCameraDevice() {
 class SteamFrameV4L2CameraSource::Impl {
 public:
     Impl(core::ILogger&, ::vr::IVRSystem*) {}
+    const char* GetSourceName() const { return "Steam Frame V4L2 (unsupported)"; }
     bool HasCamera() { return false; }
     bool GetFrameSize(uint32_t&, uint32_t&, uint32_t&) { return false; }
     bool GetIntrinsics(core::tracking::CameraIntrinsics&) { return false; }
@@ -536,6 +541,10 @@ SteamFrameV4L2CameraSource::SteamFrameV4L2CameraSource(core::ILogger& logger, ::
     : impl_(std::make_unique<Impl>(logger, system)) {}
 
 SteamFrameV4L2CameraSource::~SteamFrameV4L2CameraSource() = default;
+
+const char* SteamFrameV4L2CameraSource::GetSourceName() const {
+    return impl_->GetSourceName();
+}
 
 bool SteamFrameV4L2CameraSource::HasCamera() {
     return impl_->HasCamera();

@@ -25,6 +25,7 @@ public:
     void FillRoundedRect(int x, int y, int width, int height, int radius, const ColorRgba& color);
 
     void DrawLabel(const std::string& label, int centerX, int centerY, int scale, const ColorRgba& color);
+    void DrawTextLeft(const std::string& label, int startX, int startY, int scale, const ColorRgba& color);
 
     // Vector Geometric Icons matching Phone Window navigation & grab footer
     void DrawIconBack(int centerX, int centerY, const ColorRgba& color);

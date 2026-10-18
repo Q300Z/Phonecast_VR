@@ -133,6 +133,7 @@ struct OverlaySettings {
     bool audioMuted{false};
     float audioVolume{0.7F};
     bool audioUseSystemDefault{false};
+    bool debugTracking{false};
 };
 
 class IOverlayRenderer {

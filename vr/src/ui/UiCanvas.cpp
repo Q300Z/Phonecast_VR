@@ -1,6 +1,7 @@
 #include "phonecast/vr/ui/UiCanvas.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <unordered_map>
 
@@ -52,7 +53,16 @@ const std::unordered_map<char, Glyph> kGlyphs{
     {':', {"00000", "00110", "00110", "00000", "00110", "00110", "00000"}},
     {'?', {"01110", "10001", "00001", "00010", "00100", "00000", "00100"}},
     {'>', {"10000", "01000", "00100", "00010", "00100", "01000", "10000"}},
-    {'/', {"00001", "00010", "00100", "00100", "01000", "10000", "00000"}}
+    {'/', {"00001", "00010", "00100", "00100", "01000", "10000", "00000"}},
+    {'[', {"01110", "01000", "01000", "01000", "01000", "01000", "01110"}},
+    {']', {"01110", "00010", "00010", "00010", "00010", "00010", "01110"}},
+    {'(', {"00100", "01000", "10000", "10000", "10000", "01000", "00100"}},
+    {')', {"00100", "00010", "00001", "00001", "00001", "00010", "00100"}},
+    {'=', {"00000", "11111", "00000", "00000", "11111", "00000", "00000"}},
+    {'%', {"11001", "11010", "00100", "01000", "01011", "10011", "00000"}},
+    {',', {"00000", "00000", "00000", "00000", "00110", "00100", "01000"}},
+    {'_', {"00000", "00000", "00000", "00000", "00000", "00000", "11111"}},
+    {' ', {"00000", "00000", "00000", "00000", "00000", "00000", "00000"}}
 };
 
 }  // namespace
@@ -147,7 +157,8 @@ void UiCanvas::DrawLabel(const std::string& label, int centerX, int centerY, int
     int cursorX = centerX - labelWidth / 2;
     const int originY = centerY - 7 * scale / 2;
     for (const char character : label) {
-        const auto glyph = kGlyphs.find(character);
+        const char upperChar = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        const auto glyph = kGlyphs.find(upperChar);
         if (glyph != kGlyphs.end()) {
             for (int row = 0; row < 7; ++row) {
                 for (int column = 0; column < 5; ++column) {
@@ -155,6 +166,28 @@ void UiCanvas::DrawLabel(const std::string& label, int centerX, int centerY, int
                     for (int yy = 0; yy < scale; ++yy) {
                         for (int xx = 0; xx < scale; ++xx) {
                             SetPixel(cursorX + column * scale + xx, originY + row * scale + yy, color);
+                        }
+                    }
+                }
+            }
+        }
+        cursorX += advance;
+    }
+}
+
+void UiCanvas::DrawTextLeft(const std::string& label, int startX, int startY, int scale, const ColorRgba& color) {
+    const int advance = 6 * scale;
+    int cursorX = startX;
+    for (const char character : label) {
+        const char upperChar = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        const auto glyph = kGlyphs.find(upperChar);
+        if (glyph != kGlyphs.end()) {
+            for (int row = 0; row < 7; ++row) {
+                for (int column = 0; column < 5; ++column) {
+                    if (glyph->second[static_cast<std::size_t>(row)][column] != '1') continue;
+                    for (int yy = 0; yy < scale; ++yy) {
+                        for (int xx = 0; xx < scale; ++xx) {
+                            SetPixel(cursorX + column * scale + xx, startY + row * scale + yy, color);
                         }
                     }
                 }

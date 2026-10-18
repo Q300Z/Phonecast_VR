@@ -13,6 +13,7 @@ public:
     SteamFrameV4L2CameraSource(core::ILogger& logger, ::vr::IVRSystem* system);
     ~SteamFrameV4L2CameraSource() override;
 
+    const char* GetSourceName() const override;
     bool HasCamera() override;
     bool GetFrameSize(uint32_t& width, uint32_t& height, uint32_t& bufferSize) override;
     bool GetIntrinsics(core::tracking::CameraIntrinsics& intrinsics) override;

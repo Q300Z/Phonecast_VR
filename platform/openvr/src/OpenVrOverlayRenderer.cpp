@@ -50,6 +50,10 @@ constexpr char kNotificationOverlayKey[] = "com.phonecastvr.receiver.notificatio
 constexpr char kNotificationOverlayName[] = "PhoneCast Notification";
 constexpr char kPassthroughOverlayKey[] = "com.phonecastvr.receiver.passthrough";
 constexpr char kPassthroughOverlayName[] = "PhoneCast Passthrough Cutout";
+constexpr char kTrackingFrameOverlayKey[] = "com.phonecastvr.receiver.trackingframe";
+constexpr char kTrackingFrameOverlayName[] = "PhoneCast Tracking Frame";
+constexpr char kTrackingDebugOverlayKey[] = "com.phonecastvr.receiver.trackingdebug";
+constexpr char kTrackingDebugOverlayName[] = "PhoneCast Tracking Debug";
 using namespace phonecast::vr::ui;
 
 // The dashboard is the approved in-headset entry point. Keep the earlier pose,
@@ -652,7 +656,8 @@ public:
                          "Set notification transform", error)) return false;
 
         if (cameraWorker) {
-            cameraWorker->SetActive(settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked);
+            cameraWorker->SetActive(settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked ||
+                                    settings.debugTracking);
         }
         if (settings.placementMode != phonecast::vr::PlacementMode::PhoneTracked &&
             passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
@@ -700,7 +705,10 @@ public:
             } else {
                 vr::HmdMatrix34_t hmdPose{};
                 if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
-                    transform = Multiply(hmdPose, LocalTransform(settings));
+                    auto searchOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                          {0.0F, 1.0F, 0.0F, -0.15F},
+                                                          {0.0F, 0.0F, 1.0F, -0.45F}}};
+                    transform = Multiply(hmdPose, searchOffset);
                     if (!OverlayCall(overlayApi->SetOverlayTransformAbsolute(
                                          overlay, vr::TrackingUniverseStanding, &transform),
                                      "SetOverlayTransformAbsolute", error)) return false;
@@ -799,9 +807,232 @@ public:
         overlayApi->ShowOverlay(passthroughOverlay);
     }
 
+    void MakeTrackingFrameTexture(std::vector<uint8_t>& buffer, uint32_t width, uint32_t height) {
+        const size_t byteCount = static_cast<size_t>(width) * height * 4U;
+        buffer.assign(byteCount, 0);
+
+        const int w = static_cast<int>(width);
+        const int h = static_cast<int>(height);
+        const int borderThickness = 12;
+        const int bracketLength = 40;
+        const int bracketThickness = 4;
+
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const size_t offset = (static_cast<size_t>(y) * width + static_cast<size_t>(x)) * 4U;
+
+                // Faint red interior volume tint (~8% opacity)
+                buffer[offset + 0] = 255;
+                buffer[offset + 1] = 20;
+                buffer[offset + 2] = 20;
+                buffer[offset + 3] = 20;
+
+                // High-visibility bright red perimeter border
+                const bool isBorder = (x < borderThickness || x >= w - borderThickness ||
+                                      y < borderThickness || y >= h - borderThickness);
+                if (isBorder) {
+                    buffer[offset + 0] = 255;
+                    buffer[offset + 1] = 24;
+                    buffer[offset + 2] = 24;
+                    buffer[offset + 3] = 255;
+                }
+
+                // White corner alignment brackets
+                const bool isCornerX = (x < bracketLength || x >= w - bracketLength);
+                const bool isCornerY = (y < bracketLength || y >= h - bracketLength);
+                if (isCornerX && isCornerY) {
+                    const bool isBracketX = (x < bracketThickness || x >= w - bracketThickness);
+                    const bool isBracketY = (y < bracketThickness || y >= h - bracketThickness);
+                    if (isBracketX || isBracketY) {
+                        buffer[offset + 0] = 255;
+                        buffer[offset + 1] = 255;
+                        buffer[offset + 2] = 255;
+                        buffer[offset + 3] = 255;
+                    }
+                }
+
+                // Center reticle crosshair
+                const int cx = w / 2;
+                const int cy = h / 2;
+                if ((std::abs(x - cx) <= 14 && std::abs(y - cy) <= 1) ||
+                    (std::abs(y - cy) <= 14 && std::abs(x - cx) <= 1)) {
+                    buffer[offset + 0] = 255;
+                    buffer[offset + 1] = 80;
+                    buffer[offset + 2] = 80;
+                    buffer[offset + 3] = 220;
+                }
+            }
+        }
+    }
+
+    void RenderTrackingDebugOverlay(const TrackedCameraDebugInfo& info) {
+        if (trackingDebugOverlay == vr::k_ulOverlayHandleInvalid || overlayApi == nullptr) return;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastDebugRenderTime_ < std::chrono::milliseconds(50)) {
+            return;
+        }
+        lastDebugRenderTime_ = now;
+
+        constexpr uint32_t width = 640;
+        constexpr uint32_t height = 360;
+        UiCanvas canvas(trackingDebugTexture_, width, height);
+
+        // Dark sleek HUD panel with 16px rounded corners
+        canvas.FillRoundedRect(0, 0, width, height, 16, {12, 18, 28, 240});
+        canvas.FillRect(0, 0, width, 4, {255, 215, 0, 255}); // Gold accent strip
+
+        const ColorRgba headerColor = {255, 215, 0, 255};
+        const ColorRgba sectionColor = {80, 200, 255, 255};
+        const ColorRgba textColor = {240, 245, 250, 255};
+        const ColorRgba greenColor = {50, 255, 120, 255};
+        const ColorRgba redColor = {255, 70, 70, 255};
+        const ColorRgba yellowColor = {255, 220, 50, 255};
+
+        canvas.DrawLabel("PHONECAST VR - 6-DOF TRACKING HUD", width / 2, 22, 2, headerColor);
+
+        // Section 1: Camera
+        std::string camStatus = std::string("CAMERA: ") + info.sourceName +
+            (info.streamingAcquired ? " [ACTIVE]" : " [OFFLINE]");
+        std::ostringstream camMetrics;
+        camMetrics << "STREAM: " << info.frameWidth << "X" << info.frameHeight << " @ "
+                   << std::fixed << std::setprecision(1) << info.fps << " FPS"
+                   << " | SEQ: " << info.frameSequence;
+        canvas.DrawTextLeft(camStatus, 20, 48, 1, sectionColor);
+        canvas.DrawTextLeft(camMetrics.str(), 20, 68, 1, textColor);
+
+        // Section 2: Optical State
+        std::string stateStr;
+        ColorRgba stateColor = textColor;
+        if (info.state == core::tracking::TrackingState::Tracking) {
+            stateStr = "STATE: TRACKED (OPTICAL LOCK)";
+            stateColor = greenColor;
+        } else if (info.state == core::tracking::TrackingState::Occluded) {
+            stateStr = "STATE: OCCLUDED (DEAD RECKONING IMU)";
+            stateColor = yellowColor;
+        } else if (info.active) {
+            stateStr = "STATE: SEARCHING FOR PHONE SCREEN...";
+            stateColor = yellowColor;
+        } else {
+            stateStr = "STATE: IDLE / OFF";
+            stateColor = redColor;
+        }
+        std::ostringstream lumaStr;
+        lumaStr << "LUMA: PEAK " << static_cast<int>(info.peakLuma)
+                << " | THRESH " << static_cast<int>(info.lumaThreshold)
+                << " | BRIGHT PIXELS " << info.brightPixelCount;
+        std::string bordersStr = std::string("BORDERS: TOP[") + (info.borderTop ? "OK" : "FAIL") + "]"
+                               + " RIGHT[" + (info.borderRight ? "OK" : "FAIL") + "]"
+                               + " BOTTOM[" + (info.borderBottom ? "OK" : "FAIL") + "]"
+                               + " LEFT[" + (info.borderLeft ? "OK" : "FAIL") + "]"
+                               + " CORNERS[" + (info.cornersValid ? "OK" : "FAIL") + "]";
+        canvas.DrawTextLeft(stateStr, 20, 96, 1, stateColor);
+        canvas.DrawTextLeft(lumaStr.str(), 20, 116, 1, textColor);
+        canvas.DrawTextLeft(bordersStr, 20, 136, 1, info.cornersValid ? greenColor : yellowColor);
+
+        // Section 3: 3D Spatial Pose
+        canvas.DrawTextLeft("--- 3D SPATIAL POSE (STANDING SPACE) ---", 20, 166, 1, sectionColor);
+        std::ostringstream standingPos;
+        standingPos << "STANDING POS:  X=" << std::showpos << std::fixed << std::setprecision(3)
+                    << info.standingX << "M  Y=" << info.standingY << "M  Z=" << info.standingZ << "M";
+        std::ostringstream hmdPos;
+        hmdPos << "HMD RELATIVE:  DIST=" << std::noshowpos << std::fixed << std::setprecision(3)
+               << info.hmdDistanceMeters << "M  (DX=" << std::showpos << info.hmdRelativeX
+               << " DY=" << info.hmdRelativeY << " DZ=" << info.hmdRelativeZ << ")";
+        std::ostringstream rotStr;
+        rotStr << "ROTATION:      PITCH=" << std::showpos << std::fixed << std::setprecision(1)
+               << info.pitchDeg << " DEG  YAW=" << info.yawDeg << " DEG  ROLL=" << info.rollDeg << " DEG";
+        canvas.DrawTextLeft(standingPos.str(), 20, 188, 1, info.poseValid ? textColor : yellowColor);
+        canvas.DrawTextLeft(hmdPos.str(), 20, 208, 1, info.poseValid ? textColor : yellowColor);
+        canvas.DrawTextLeft(rotStr.str(), 20, 228, 1, info.poseValid ? textColor : yellowColor);
+
+        // Section 4: Telemetry & Tip
+        canvas.DrawTextLeft("--- PHONE TELEMETRY & HARDWARE ---", 20, 258, 1, sectionColor);
+        std::ostringstream metricsStr;
+        metricsStr << "SCREEN METRICS: " << std::noshowpos << std::fixed << std::setprecision(1)
+                   << info.metricsWidthMm << " X " << info.metricsHeightMm << " MM"
+                   << " (VIRTUAL: " << std::setprecision(3) << info.physicalWidthMeters << "M)";
+        std::ostringstream imuStr;
+        imuStr << "PHONE IMU: " << (info.hasImu ? "STREAMING" : "WAITING FOR PACKETS")
+               << " | RECEIVED: " << info.imuPacketsReceived << " PACKETS";
+        canvas.DrawTextLeft(metricsStr.str(), 20, 280, 1, textColor);
+        canvas.DrawTextLeft(imuStr.str(), 20, 300, 1, info.hasImu ? greenColor : yellowColor);
+
+        canvas.DrawTextLeft("TIP: UNCHECK 'DIM PHONE WHILE CASTING' ON ANDROID FOR OPTICAL LOCK",
+                            20, 332, 1, headerColor);
+
+        overlayApi->SetOverlayRaw(trackingDebugOverlay, canvas.Pixels().data(), width, height, 4);
+    }
+
+    void UpdateTrackingDebugVisuals(bool poseValid, const vr::HmdMatrix34_t& phoneTransform,
+                                   float physicalWidthMeters, bool showHud) {
+        if (overlayApi == nullptr) return;
+
+        // 1. Red Frame Overlay
+        if (trackingFrameOverlay != vr::k_ulOverlayHandleInvalid) {
+            if (poseValid) {
+                const float frameWidth = physicalWidthMeters > 0.0F ? physicalWidthMeters : 0.075F;
+                overlayApi->SetOverlayWidthInMeters(trackingFrameOverlay, frameWidth);
+                overlayApi->SetOverlayTransformAbsolute(trackingFrameOverlay, vr::TrackingUniverseStanding, &phoneTransform);
+                overlayApi->ShowOverlay(trackingFrameOverlay);
+            } else {
+                vr::HmdMatrix34_t hmdPose{};
+                if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
+                    auto searchOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                          {0.0F, 1.0F, 0.0F, -0.15F},
+                                                          {0.0F, 0.0F, 1.0F, -0.45F}}};
+                    auto searchTransform = Multiply(hmdPose, searchOffset);
+                    overlayApi->SetOverlayWidthInMeters(trackingFrameOverlay, 0.075F);
+                    overlayApi->SetOverlayTransformAbsolute(trackingFrameOverlay, vr::TrackingUniverseStanding, &searchTransform);
+                    overlayApi->ShowOverlay(trackingFrameOverlay);
+                }
+            }
+        }
+
+        // 2. Debug HUD Overlay
+        if (trackingDebugOverlay != vr::k_ulOverlayHandleInvalid) {
+            if (showHud && cameraWorker) {
+                const auto debugInfo = cameraWorker->GetDebugInfo();
+                RenderTrackingDebugOverlay(debugInfo);
+
+                if (poseValid) {
+                    auto hudOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                        {0.0F, 1.0F, 0.0F, 0.22F},
+                                                        {0.0F, 0.0F, 1.0F, 0.0F}}};
+                    auto hudTransform = Multiply(phoneTransform, hudOffset);
+                    overlayApi->SetOverlayWidthInMeters(trackingDebugOverlay, 0.38F);
+                    overlayApi->SetOverlayTransformAbsolute(trackingDebugOverlay, vr::TrackingUniverseStanding, &hudTransform);
+                    overlayApi->ShowOverlay(trackingDebugOverlay);
+                } else {
+                    vr::HmdMatrix34_t hmdPose{};
+                    if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
+                        auto searchHudOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                                 {0.0F, 1.0F, 0.0F, 0.12F},
+                                                                 {0.0F, 0.0F, 1.0F, -0.50F}}};
+                        auto hudTransform = Multiply(hmdPose, searchHudOffset);
+                        overlayApi->SetOverlayWidthInMeters(trackingDebugOverlay, 0.38F);
+                        overlayApi->SetOverlayTransformAbsolute(trackingDebugOverlay, vr::TrackingUniverseStanding, &hudTransform);
+                        overlayApi->ShowOverlay(trackingDebugOverlay);
+                    }
+                }
+            } else {
+                overlayApi->HideOverlay(trackingDebugOverlay);
+            }
+        }
+    }
+
     void UpdateControllerPlacement() {
         if (grabbedDevice != vr::k_unTrackedDeviceIndexInvalid) return;
-        if (currentSettings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
+
+        const bool debugActive = currentSettings.debugTracking;
+        const bool phoneTrackedMode = currentSettings.placementMode == phonecast::vr::PlacementMode::PhoneTracked;
+
+        if (cameraWorker && (phoneTrackedMode || debugActive)) {
+            if (!cameraWorker->IsActive()) {
+                cameraWorker->SetActive(true);
+            }
+        }
+
+        if (phoneTrackedMode) {
             if (!cameraWorker) {
                 if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
                     overlayApi->HideOverlay(passthroughOverlay);
@@ -810,19 +1041,49 @@ public:
             }
             vr::HmdMatrix34_t transform{};
             float physicalWidthMeters = 0.0F;
-            if (cameraWorker->GetLatestPose(transform, &physicalWidthMeters)) {
+            const bool poseValid = cameraWorker->GetLatestPose(transform, &physicalWidthMeters);
+
+            if (poseValid) {
                 if (physicalWidthMeters > 0.0F) {
                     overlayApi->SetOverlayWidthInMeters(overlay, physicalWidthMeters);
                 }
                 overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
+                overlayApi->SetOverlayAlpha(overlay, currentSettings.alpha);
                 UpdatePassthroughCutout(transform, physicalWidthMeters);
             } else {
                 if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
                     overlayApi->HideOverlay(passthroughOverlay);
                 }
+                vr::HmdMatrix34_t hmdPose{};
+                if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
+                    auto searchOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                          {0.0F, 1.0F, 0.0F, -0.15F},
+                                                          {0.0F, 0.0F, 1.0F, -0.45F}}};
+                    auto searchTransform = Multiply(hmdPose, searchOffset);
+                    overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &searchTransform);
+                    overlayApi->SetOverlayAlpha(overlay, currentSettings.alpha * 0.65F);
+                }
+            }
+
+            if (debugActive || phoneTrackedMode) {
+                UpdateTrackingDebugVisuals(poseValid, transform, physicalWidthMeters, debugActive);
+            } else {
+                if (trackingFrameOverlay != vr::k_ulOverlayHandleInvalid) overlayApi->HideOverlay(trackingFrameOverlay);
+                if (trackingDebugOverlay != vr::k_ulOverlayHandleInvalid) overlayApi->HideOverlay(trackingDebugOverlay);
             }
             return;
         }
+
+        if (debugActive && cameraWorker) {
+            vr::HmdMatrix34_t transform{};
+            float physicalWidthMeters = 0.0F;
+            const bool poseValid = cameraWorker->GetLatestPose(transform, &physicalWidthMeters);
+            UpdateTrackingDebugVisuals(poseValid, transform, physicalWidthMeters, true);
+        } else {
+            if (trackingFrameOverlay != vr::k_ulOverlayHandleInvalid) overlayApi->HideOverlay(trackingFrameOverlay);
+            if (trackingDebugOverlay != vr::k_ulOverlayHandleInvalid) overlayApi->HideOverlay(trackingDebugOverlay);
+        }
+
         if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
             overlayApi->HideOverlay(passthroughOverlay);
         }
@@ -1773,6 +2034,11 @@ public:
     vr::VROverlayHandle_t settingsOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t notificationOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t passthroughOverlay{vr::k_ulOverlayHandleInvalid};
+    vr::VROverlayHandle_t trackingFrameOverlay{vr::k_ulOverlayHandleInvalid};
+    vr::VROverlayHandle_t trackingDebugOverlay{vr::k_ulOverlayHandleInvalid};
+    std::chrono::steady_clock::time_point lastDebugRenderTime_{};
+    std::vector<uint8_t> trackingFrameTexture_;
+    std::vector<uint8_t> trackingDebugTexture_;
     vr::VROverlayHandle_t dashboardOverlay{vr::k_ulOverlayHandleInvalid};
     vr::VROverlayHandle_t dashboardThumbnail{vr::k_ulOverlayHandleInvalid};
     std::deque<std::string> pendingTextQueue;
@@ -1990,10 +2256,34 @@ bool OpenVrOverlayRenderer::Start(const phonecast::vr::OverlaySettings& settings
                             "Set passthrough alpha", error) ||
         !impl_->OverlayCall(impl_->overlayApi->SetOverlaySortOrder(
                                 impl_->passthroughOverlay, 90U),
-                            "Set passthrough sort order", error)) {
+                            "Set passthrough sort order", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->CreateOverlay(
+                                kTrackingFrameOverlayKey, kTrackingFrameOverlayName,
+                                &impl_->trackingFrameOverlay),
+                            "Create tracking frame overlay", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlayAlpha(
+                                impl_->trackingFrameOverlay, 1.0F),
+                            "Set tracking frame alpha", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlaySortOrder(
+                                impl_->trackingFrameOverlay, 95U),
+                            "Set tracking frame sort order", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->CreateOverlay(
+                                kTrackingDebugOverlayKey, kTrackingDebugOverlayName,
+                                &impl_->trackingDebugOverlay),
+                            "Create tracking debug overlay", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlayAlpha(
+                                impl_->trackingDebugOverlay, 0.95F),
+                            "Set tracking debug alpha", error) ||
+        !impl_->OverlayCall(impl_->overlayApi->SetOverlaySortOrder(
+                                impl_->trackingDebugOverlay, 105U),
+                            "Set tracking debug sort order", error)) {
         Stop();
         return false;
     }
+
+    impl_->MakeTrackingFrameTexture(impl_->trackingFrameTexture_, 256, 512);
+    impl_->overlayApi->SetOverlayRaw(impl_->trackingFrameOverlay,
+                                     impl_->trackingFrameTexture_.data(), 256, 512, 4);
 
     const vr::HmdVector2_t menuMouseScale{{static_cast<float>(kMenuTextureWidth),
                                            static_cast<float>(kMenuTextureHeight)}};
@@ -2748,6 +3038,14 @@ void OpenVrOverlayRenderer::Stop() noexcept {
         impl_->overlayApi->HideOverlay(impl_->passthroughOverlay);
         impl_->overlayApi->DestroyOverlay(impl_->passthroughOverlay);
     }
+    if (impl_->overlayApi != nullptr && impl_->trackingFrameOverlay != vr::k_ulOverlayHandleInvalid) {
+        impl_->overlayApi->HideOverlay(impl_->trackingFrameOverlay);
+        impl_->overlayApi->DestroyOverlay(impl_->trackingFrameOverlay);
+    }
+    if (impl_->overlayApi != nullptr && impl_->trackingDebugOverlay != vr::k_ulOverlayHandleInvalid) {
+        impl_->overlayApi->HideOverlay(impl_->trackingDebugOverlay);
+        impl_->overlayApi->DestroyOverlay(impl_->trackingDebugOverlay);
+    }
     if (impl_->overlayApi != nullptr && impl_->settingsOverlay != vr::k_ulOverlayHandleInvalid) {
         impl_->overlayApi->HideOverlay(impl_->settingsOverlay);
         impl_->overlayApi->DestroyOverlay(impl_->settingsOverlay);
@@ -2764,6 +3062,8 @@ void OpenVrOverlayRenderer::Stop() noexcept {
     impl_->settingsOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->notificationOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->passthroughOverlay = vr::k_ulOverlayHandleInvalid;
+    impl_->trackingFrameOverlay = vr::k_ulOverlayHandleInvalid;
+    impl_->trackingDebugOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->dashboardOverlay = vr::k_ulOverlayHandleInvalid;
     impl_->dashboardThumbnail = vr::k_ulOverlayHandleInvalid;
     impl_->menuOverlay = vr::k_ulOverlayHandleInvalid;

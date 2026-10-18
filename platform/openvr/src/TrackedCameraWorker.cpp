@@ -79,6 +79,8 @@ public:
         ReleaseStreaming();
     }
 
+    const char* GetSourceName() const override { return "OpenVR IVRTrackedCamera"; }
+
     bool HasCamera() override {
         if (!cameraApi_) return false;
         bool hasCam = false;
@@ -174,6 +176,11 @@ public:
 #if defined(__linux__)
         v4l2Source_ = std::make_unique<SteamFrameV4L2CameraSource>(logger, system);
 #endif
+    }
+
+    const char* GetSourceName() const override {
+        if (activeSource_) return activeSource_->GetSourceName();
+        return "Auto (Searching Camera...)";
     }
 
     bool HasCamera() override {
@@ -345,6 +352,7 @@ void TrackedCameraWorker::IngestPhoneImu(const core::protocol::StreamPhoneImu& i
     pendingImu_.push_back(packet);
     latestImu_ = packet;
     hasImu_ = true;
+    ++totalImuPackets_;
 }
 
 bool TrackedCameraWorker::GetLatestPose(::vr::HmdMatrix34_t& outTransform, float* outPhysicalWidth) {
@@ -369,6 +377,11 @@ bool TrackedCameraWorker::GetLatestCameraFrame(CameraFrameSnapshot& outSnapshot)
     if (!latestFrameSnapshot_.valid) return false;
     outSnapshot = latestFrameSnapshot_;
     return true;
+}
+
+TrackedCameraDebugInfo TrackedCameraWorker::GetDebugInfo() const {
+    std::lock_guard<std::mutex> lock(snapshotMutex_);
+    return latestDebugInfo_;
 }
 
 void TrackedCameraWorker::Stop() noexcept {
@@ -400,6 +413,50 @@ bool TrackedCameraWorker::DetectScreenCorners(
     core::tracking::Vector2 ptTL{}, ptTR{}, ptBR{}, ptBL{};
     bool seedFound = false;
 
+    // Dynamic luma threshold calculation:
+    // In real rooms, ambient light can easily exceed 60 across the FOV.
+    // We find the peak luma in the image and set a relative threshold clamped between [60, 200].
+    uint8_t maxLuma = 0;
+    for (uint32_t y = 16; y < frame.height - 16; y += 16) {
+        for (uint32_t x = 16; x < frame.width - 16; x += 16) {
+            const uint8_t lum = frame.GetLuma(x, y);
+            if (lum > maxLuma) maxLuma = lum;
+        }
+    }
+
+    const uint8_t lumaThreshold = std::clamp(
+        static_cast<uint8_t>(maxLuma * 0.75F),
+        static_cast<uint8_t>(60),
+        static_cast<uint8_t>(200));
+
+    // Fast coarse grid scan (step 16) to find phone display bounding region
+    float minX = static_cast<float>(frame.width);
+    float maxX = 0.0F;
+    float minY = static_cast<float>(frame.height);
+    float maxY = 0.0F;
+    uint32_t brightCount = 0;
+
+    for (uint32_t y = 16; y < frame.height - 16; y += 16) {
+        for (uint32_t x = 16; x < frame.width - 16; x += 16) {
+            if (frame.GetLuma(x, y) >= lumaThreshold) {
+                const float fx = static_cast<float>(x);
+                const float fy = static_cast<float>(y);
+                minX = std::min(minX, fx);
+                maxX = std::max(maxX, fx);
+                minY = std::min(minY, fy);
+                maxY = std::max(maxY, fy);
+                ++brightCount;
+            }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(snapshotMutex_);
+        latestDebugInfo_.peakLuma = maxLuma;
+        latestDebugInfo_.lumaThreshold = lumaThreshold;
+        latestDebugInfo_.brightPixelCount = brightCount;
+    }
+
     if (priorCorners_.valid) {
         ptTL = priorCorners_.corners[0];
         ptTR = priorCorners_.corners[1];
@@ -409,43 +466,6 @@ bool TrackedCameraWorker::DetectScreenCorners(
     }
 
     if (!seedFound) {
-        // Dynamic luma threshold calculation:
-        // In real rooms, ambient light can easily exceed 60 across the FOV.
-        // We find the peak luma in the image and set a relative threshold clamped between [60, 200].
-        uint8_t maxLuma = 0;
-        for (uint32_t y = 16; y < frame.height - 16; y += 16) {
-            for (uint32_t x = 16; x < frame.width - 16; x += 16) {
-                const uint8_t lum = frame.GetLuma(x, y);
-                if (lum > maxLuma) maxLuma = lum;
-            }
-        }
-
-        const uint8_t lumaThreshold = std::clamp(
-            static_cast<uint8_t>(maxLuma * 0.75F),
-            static_cast<uint8_t>(60),
-            static_cast<uint8_t>(200));
-
-        // Fast coarse grid scan (step 16) to find phone display bounding region
-        float minX = static_cast<float>(frame.width);
-        float maxX = 0.0F;
-        float minY = static_cast<float>(frame.height);
-        float maxY = 0.0F;
-        uint32_t brightCount = 0;
-
-        for (uint32_t y = 16; y < frame.height - 16; y += 16) {
-            for (uint32_t x = 16; x < frame.width - 16; x += 16) {
-                if (frame.GetLuma(x, y) >= lumaThreshold) {
-                    const float fx = static_cast<float>(x);
-                    const float fy = static_cast<float>(y);
-                    minX = std::min(minX, fx);
-                    maxX = std::max(maxX, fx);
-                    minY = std::min(minY, fy);
-                    maxY = std::max(maxY, fy);
-                    ++brightCount;
-                }
-            }
-        }
-
         const float boxW = maxX - minX;
         const float boxH = maxY - minY;
         const float frameW = static_cast<float>(frame.width);
@@ -501,9 +521,22 @@ bool TrackedCameraWorker::DetectScreenCorners(
                            borders.bottom.valid && borders.left.valid;
     }
 
+    {
+        std::lock_guard<std::mutex> lock(snapshotMutex_);
+        latestDebugInfo_.borderTop = borders.top.valid;
+        latestDebugInfo_.borderRight = borders.right.valid;
+        latestDebugInfo_.borderBottom = borders.bottom.valid;
+        latestDebugInfo_.borderLeft = borders.left.valid;
+        latestDebugInfo_.cornersValid = outCorners.valid;
+    }
+
     if (borders.IsValid()) {
         outCorners = core::tracking::CornerIntersection::ComputeCorners(borders);
         if (outCorners.valid) {
+            {
+                std::lock_guard<std::mutex> lock(snapshotMutex_);
+                latestDebugInfo_.cornersValid = true;
+            }
             priorCorners_ = outCorners;
             lastValidCorners_ = outCorners;
             occlusionFrameCount_ = 0;
@@ -621,6 +654,57 @@ void TrackedCameraWorker::ProcessFrame(
         latestSnapshot_.sequence = header.nFrameSequence;
         latestSnapshot_.timestamp = std::chrono::steady_clock::now();
 
+        latestDebugInfo_.active = active_.load();
+        latestDebugInfo_.streamingAcquired = true;
+        if (cameraSource_) {
+            const char* srcName = cameraSource_->GetSourceName();
+            if (srcName != nullptr) {
+                std::strncpy(latestDebugInfo_.sourceName, srcName, sizeof(latestDebugInfo_.sourceName) - 1);
+                latestDebugInfo_.sourceName[sizeof(latestDebugInfo_.sourceName) - 1] = '\0';
+            }
+        }
+        latestDebugInfo_.frameWidth = frameView.width;
+        latestDebugInfo_.frameHeight = frameView.height;
+        latestDebugInfo_.frameSequence = header.nFrameSequence;
+        latestDebugInfo_.fps = currentFps_;
+
+        latestDebugInfo_.state = fusedPose.state;
+        latestDebugInfo_.poseValid = fusedPose.valid;
+        latestDebugInfo_.confidence = fusedPose.confidence;
+        latestDebugInfo_.physicalWidthMeters = latestSnapshot_.physicalWidthMeters;
+        latestDebugInfo_.physicalHeightMeters = currentMetrics.heightMillimeters * 0.001F;
+
+        if (fusedPose.valid) {
+            latestDebugInfo_.standingX = fusedPose.position.x;
+            latestDebugInfo_.standingY = fusedPose.position.y;
+            latestDebugInfo_.standingZ = fusedPose.position.z;
+
+            const auto& hmdPose = header.trackedDevicePose;
+            if (hmdPose.bPoseIsValid) {
+                const float hmdX = hmdPose.mDeviceToAbsoluteTracking.m[0][3];
+                const float hmdY = hmdPose.mDeviceToAbsoluteTracking.m[1][3];
+                const float hmdZ = hmdPose.mDeviceToAbsoluteTracking.m[2][3];
+                latestDebugInfo_.hmdRelativeX = fusedPose.position.x - hmdX;
+                latestDebugInfo_.hmdRelativeY = fusedPose.position.y - hmdY;
+                latestDebugInfo_.hmdRelativeZ = fusedPose.position.z - hmdZ;
+                latestDebugInfo_.hmdDistanceMeters = std::sqrt(
+                    latestDebugInfo_.hmdRelativeX * latestDebugInfo_.hmdRelativeX +
+                    latestDebugInfo_.hmdRelativeY * latestDebugInfo_.hmdRelativeY +
+                    latestDebugInfo_.hmdRelativeZ * latestDebugInfo_.hmdRelativeZ);
+            }
+
+            const auto& m = latestSnapshot_.transform.m;
+            latestDebugInfo_.pitchDeg = std::atan2(-m[1][2], m[2][2]) * 180.0F / 3.14159265F;
+            latestDebugInfo_.yawDeg = std::asin(std::clamp(m[0][2], -1.0F, 1.0F)) * 180.0F / 3.14159265F;
+            latestDebugInfo_.rollDeg = std::atan2(-m[0][1], m[0][0]) * 180.0F / 3.14159265F;
+        }
+
+        latestDebugInfo_.hasImu = hasImu;
+        latestDebugInfo_.imuPacketsReceived = totalImuPackets_;
+        latestDebugInfo_.hasMetrics = hasMetrics;
+        latestDebugInfo_.metricsWidthMm = currentMetrics.widthMillimeters;
+        latestDebugInfo_.metricsHeightMm = currentMetrics.heightMillimeters;
+
         if (active_ && buffer != nullptr && frameView.width > 0 && frameView.height > 0) {
             latestFrameSnapshot_.valid = true;
             latestFrameSnapshot_.width = frameView.width;
@@ -692,12 +776,34 @@ void TrackedCameraWorker::WorkerLoop() {
             }
         }
 
+        {
+            std::lock_guard<std::mutex> lock(snapshotMutex_);
+            latestDebugInfo_.active = active_.load();
+            latestDebugInfo_.streamingAcquired = streamingAcquired;
+            latestDebugInfo_.fps = currentFps_;
+            if (cameraSource_) {
+                const char* srcName = cameraSource_->GetSourceName();
+                if (srcName != nullptr) {
+                    std::strncpy(latestDebugInfo_.sourceName, srcName, sizeof(latestDebugInfo_.sourceName) - 1);
+                    latestDebugInfo_.sourceName[sizeof(latestDebugInfo_.sourceName) - 1] = '\0';
+                }
+            }
+        }
+
         if (streamingAcquired && cameraSource_) {
             ::vr::CameraVideoStreamFrameHeader_t header{};
             const auto err = cameraSource_->GetFrame(
                 frameBuffer_.data(), static_cast<uint32_t>(frameBuffer_.size()), header);
             if (err == ::vr::VRTrackedCameraError_None && header.nFrameSequence != lastSequence_) {
                 lastSequence_ = header.nFrameSequence;
+                const auto now = std::chrono::steady_clock::now();
+                ++fpsFrameCount_;
+                const auto elapsedSec = std::chrono::duration<float>(now - lastFpsTime_).count();
+                if (elapsedSec >= 1.0F) {
+                    currentFps_ = static_cast<float>(fpsFrameCount_) / elapsedSec;
+                    fpsFrameCount_ = 0;
+                    lastFpsTime_ = now;
+                }
                 ProcessFrame(frameBuffer_.data(), header);
             } else {
                 // Between camera frames or during temporary camera dropout: drain IMU & update pose
@@ -722,7 +828,13 @@ void TrackedCameraWorker::WorkerLoop() {
                 latestSnapshot_.confidence = fused.confidence;
                 if (fused.valid) {
                     latestSnapshot_.transform = Pose6DToHmdMatrix(fused);
+                    latestDebugInfo_.standingX = fused.position.x;
+                    latestDebugInfo_.standingY = fused.position.y;
+                    latestDebugInfo_.standingZ = fused.position.z;
                 }
+                latestDebugInfo_.state = fused.state;
+                latestDebugInfo_.poseValid = fused.valid;
+                latestDebugInfo_.confidence = fused.confidence;
             }
         }
 

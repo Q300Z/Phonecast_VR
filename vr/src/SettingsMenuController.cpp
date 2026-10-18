@@ -82,7 +82,7 @@ std::size_t SettingsMenuController::ItemCount() const noexcept {
         case Page::Root: return 11;
         case Page::About: return 7;
         case Page::Appearance: return 4;
-        case Page::Placement: return 6;
+        case Page::Placement: return 7;
         case Page::StartLocation: return 4;
         case Page::LeftController:
         case Page::RightController: return 9;
@@ -121,11 +121,11 @@ SettingsMenuView SettingsMenuController::View() const {
             break;
         case Page::Placement:
             view.title = "PLACEMENT";
-            view.labels = {"MODE", "HORIZONTAL", "VERTICAL", "RESET POSITION", "START LOCATION", "BACK"};
+            view.labels = {"MODE", "HORIZONTAL", "VERTICAL", "RESET POSITION", "START LOCATION", "TRACKING DEBUG", "BACK"};
             view.values = {PlacementName(draft_.placementMode), Decimal(draft_.offsetXMeters) + " M",
-                           Decimal(draft_.offsetYMeters) + " M", "", ">", ""};
+                           Decimal(draft_.offsetYMeters) + " M", "", ">", draft_.debugTracking ? "ON" : "OFF", ""};
             view.normalizedValues = {-1.0F, Normalize(draft_.offsetXMeters, -2.0F, 2.0F),
-                                     Normalize(draft_.offsetYMeters, -2.0F, 2.0F), -1.0F, -1.0F, -1.0F};
+                                     Normalize(draft_.offsetYMeters, -2.0F, 2.0F), -1.0F, -1.0F, -1.0F, -1.0F};
             break;
         case Page::LeftController:
         case Page::RightController: {
@@ -234,6 +234,8 @@ SettingsMenuResult SettingsMenuController::Adjust(int direction) {
                 draft_.offsetXMeters = Clamp(draft_.offsetXMeters + direction * 0.05F, -2.0F, 2.0F);
             } else if (selected_ == 2) {
                 draft_.offsetYMeters = Clamp(draft_.offsetYMeters + direction * 0.05F, -2.0F, 2.0F);
+            } else if (selected_ == 5) {
+                draft_.debugTracking = !draft_.debugTracking;
             } else return SettingsMenuResult::None;
             return SettingsMenuResult::Updated;
         case Page::LeftController:
@@ -399,23 +401,27 @@ SettingsMenuResult SettingsMenuController::Activate() {
     if (page_ == Page::Placement && selected_ == 0) {
         return Adjust(1);
     }
-    if (page_ == Page::Placement && selected_ == 4) {
-        page_ = Page::StartLocation;
-        selected_ = 0;
-        return SettingsMenuResult::None;
-    }
-    const auto count = ItemCount();
-    if (selected_ == count - 1) {
-        page_ = Page::Root;
-        selected_ = 0;
-        return SettingsMenuResult::None;
-    }
     if (page_ == Page::Placement && selected_ == 3) {
         draft_.offsetXMeters = 0.0F;
         draft_.offsetYMeters = 0.0F;
         draft_.distanceMeters = 1.0F;
         draft_.worldTransformValid = false;
         return SettingsMenuResult::Updated;
+    }
+    if (page_ == Page::Placement && selected_ == 4) {
+        page_ = Page::StartLocation;
+        selected_ = 0;
+        return SettingsMenuResult::None;
+    }
+    if (page_ == Page::Placement && selected_ == 5) {
+        draft_.debugTracking = !draft_.debugTracking;
+        return SettingsMenuResult::Updated;
+    }
+    const auto count = ItemCount();
+    if (selected_ == count - 1) {
+        page_ = Page::Root;
+        selected_ = 0;
+        return SettingsMenuResult::None;
     }
     if ((page_ == Page::LeftController || page_ == Page::RightController) && selected_ == 7) {
         CalibrationFor(draft_, page_ == Page::LeftController) = {};

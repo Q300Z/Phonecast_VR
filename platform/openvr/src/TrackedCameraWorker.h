@@ -43,6 +43,52 @@ struct CameraFrameSnapshot {
     float confidence{1.0F};
 };
 
+struct TrackedCameraDebugInfo {
+    bool active{false};
+    bool streamingAcquired{false};
+    char sourceName[64]{"none"};
+    uint32_t frameWidth{0};
+    uint32_t frameHeight{0};
+    uint32_t frameSequence{0};
+    float fps{0.0F};
+
+    // Optical pipeline stats
+    uint8_t peakLuma{0};
+    uint8_t lumaThreshold{0};
+    uint32_t brightPixelCount{0};
+    bool borderTop{false};
+    bool borderRight{false};
+    bool borderBottom{false};
+    bool borderLeft{false};
+    bool cornersValid{false};
+
+    // Tracking state & pose
+    core::tracking::TrackingState state{core::tracking::TrackingState::Lost};
+    bool poseValid{false};
+    float confidence{0.0F};
+    float physicalWidthMeters{0.0F};
+    float physicalHeightMeters{0.0F};
+
+    // Standing space coordinates
+    float standingX{0.0F};
+    float standingY{0.0F};
+    float standingZ{0.0F};
+    float hmdDistanceMeters{0.0F};
+    float hmdRelativeX{0.0F};
+    float hmdRelativeY{0.0F};
+    float hmdRelativeZ{0.0F};
+    float pitchDeg{0.0F};
+    float yawDeg{0.0F};
+    float rollDeg{0.0F};
+
+    // Phone telemetry
+    bool hasImu{false};
+    uint32_t imuPacketsReceived{0};
+    bool hasMetrics{false};
+    float metricsWidthMm{0.0F};
+    float metricsHeightMm{0.0F};
+};
+
 class TrackedCameraWorker final {
 public:
     // Production constructor using OpenVR IVRTrackedCamera API
@@ -65,6 +111,7 @@ public:
     bool GetLatestPose(::vr::HmdMatrix34_t& outTransform, float* outPhysicalWidth = nullptr);
     TrackedCameraPoseSnapshot GetSnapshot();
     bool GetLatestCameraFrame(CameraFrameSnapshot& outSnapshot);
+    TrackedCameraDebugInfo GetDebugInfo() const;
 
     void Stop() noexcept;
 
@@ -90,6 +137,11 @@ private:
     mutable std::mutex snapshotMutex_;
     TrackedCameraPoseSnapshot latestSnapshot_{};
     CameraFrameSnapshot latestFrameSnapshot_{};
+    TrackedCameraDebugInfo latestDebugInfo_{};
+    uint32_t totalImuPackets_{0};
+    uint32_t fpsFrameCount_{0};
+    float currentFps_{0.0F};
+    std::chrono::steady_clock::time_point lastFpsTime_{};
 
     // Tracking pipeline
     core::tracking::LineFitterRansac lineFitter_;

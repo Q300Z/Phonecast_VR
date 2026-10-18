@@ -70,6 +70,7 @@ void PrintUsage() {
               << "  --performance-log PATH  Write one-second receiver/process/VR samples as CSV\n"
               << "  --video-device PATH     Linux: select a stateful V4L2 H.264 decoder\n"
               << "  --camera-device PATH    Linux: select V4L2 camera device for headset optical phone tracking\n"
+              << "  --debug-tracking        Show in-VR 6-DoF phone tracking diagnostics HUD and red frame\n"
               << "  --audio-device ID       Select WASAPI endpoint/Pulse sink (default: VR hint/system sink)\n"
               << "                          Use 'default' to force the system default. Android opt-in is required.\n\n"
               << "Global controls (hold Ctrl+Alt):\n"
@@ -213,6 +214,7 @@ int main(int argc, char** argv) {
     std::uint16_t port = 49321;
     bool diagnosticVisible = false;
     bool focusDashboard = false;
+    bool debugTracking = std::getenv("PHONECAST_DEBUG_TRACKING") != nullptr;
     std::filesystem::path settingsPath = DefaultSettingsPath();
     std::filesystem::path performanceLogPath;
     std::filesystem::path pairCodePath;
@@ -231,6 +233,10 @@ int main(int argc, char** argv) {
         }
         if (option == "--focus-dashboard") {
             focusDashboard = true;
+            continue;
+        }
+        if (option == "--debug-tracking") {
+            debugTracking = true;
             continue;
         }
         if (index + 1 >= argc) {
@@ -365,6 +371,10 @@ int main(int argc, char** argv) {
         initialSettings.widthMeters = 0.20F;
     }
 #endif
+    if (debugTracking) {
+        initialSettings.debugTracking = true;
+        std::cout << "[debug-tracking] 6-DoF phone tracking HUD and red target frame enabled.\n";
+    }
     phonecast::vr::OverlayController controls;
     controls.ReplaceSettings(initialSettings);
     phonecast::vr::GlanceController glance(initialSettings.glancePreviewScale);

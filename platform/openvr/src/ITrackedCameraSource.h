@@ -10,6 +10,9 @@ class ITrackedCameraSource {
 public:
     virtual ~ITrackedCameraSource() = default;
 
+    // Name or device path of the camera source
+    virtual const char* GetSourceName() const { return "Camera"; }
+
     // Checks if the tracking system has an operational camera available on the HMD
     virtual bool HasCamera() = 0;
 

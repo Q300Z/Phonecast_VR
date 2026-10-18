@@ -193,6 +193,10 @@ bool OverlaySettingsStore::Load(OverlaySettings& settings, bool& found, std::str
             return false;
         }
     }
+    const auto dbg = values.find("debug_tracking");
+    if (dbg != values.end()) {
+        loaded.debugTracking = (dbg->second == "1" || dbg->second == "true");
+    }
     settings = loaded;
     found = true;
     return true;
@@ -232,7 +236,8 @@ bool OverlaySettingsStore::Save(const OverlaySettings& settings, std::string& er
            << "start_offset_y=" << settings.startOffsetYMeters << '\n'
            << "audio_muted=" << (settings.audioMuted ? 1 : 0) << '\n'
            << "audio_volume=" << settings.audioVolume << '\n'
-           << "audio_system_default=" << (settings.audioUseSystemDefault ? 1 : 0) << '\n';
+           << "audio_system_default=" << (settings.audioUseSystemDefault ? 1 : 0) << '\n'
+           << "debug_tracking=" << (settings.debugTracking ? 1 : 0) << '\n';
     const auto writeController = [&](const char* prefix, const ControllerCalibration& calibration) {
         output << prefix << "_distance=" << calibration.distanceMeters << '\n'
                << prefix << "_height=" << calibration.heightMeters << '\n'
