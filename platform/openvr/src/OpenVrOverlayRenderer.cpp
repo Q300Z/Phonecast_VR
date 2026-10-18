@@ -63,7 +63,9 @@ constexpr std::uint32_t kSettingsTextureHeight = 978;
 constexpr std::uint32_t kDashboardTextureWidth = 1024;
 constexpr std::uint32_t kDashboardTextureHeight = 600;
 constexpr std::uint32_t kDashboardThumbnailSize = 256;
-constexpr std::uint32_t kGrabHandleHeightPixels = 64;
+constexpr std::uint32_t kNavBarHeightPixels = 48;
+constexpr std::uint32_t kGrabBarHeightPixels = 40;
+constexpr std::uint32_t kGrabHandleHeightPixels = kNavBarHeightPixels + kGrabBarHeightPixels;
 enum class DashboardControl {
     ToggleVisible,
     HeadLocked,
@@ -609,151 +611,150 @@ std::vector<std::uint8_t> MakeNotificationTexture(
 void DrawGrabFooter(phonecast::core::VideoFrame& composite,
                     std::uint32_t phoneHeight,
                     FooterHoverTarget hover = FooterHoverTarget::None) {
-    constexpr std::array<std::uint8_t, 4> background{8, 14, 24, 190};
-    constexpr std::array<std::uint8_t, 4> separator{31, 147, 220, 220};
-    const std::array<std::uint8_t, 4> handle = hover == FooterHoverTarget::Grab
-        ? std::array<std::uint8_t, 4>{255, 255, 255, 255}
-        : std::array<std::uint8_t, 4>{210, 230, 242, 235};
-    constexpr std::array<std::uint8_t, 4> footerButton{18, 35, 52, 205};
-    constexpr std::array<std::uint8_t, 4> footerButtonHover{48, 88, 132, 240};
-    constexpr std::array<std::uint8_t, 4> footerButtonCloseHover{160, 42, 54, 240};
-    constexpr std::array<std::uint8_t, 4> footerIcon{245, 249, 255, 245};
+    constexpr std::array<std::uint8_t, 4> navBackground{11, 21, 34, 250}; // #0B1522 Dark Navy
+    constexpr std::array<std::uint8_t, 4> grabBackground{7, 13, 23, 250}; // #070D17 Deep Navy
+    constexpr std::array<std::uint8_t, 4> topAccent{42, 188, 251, 220};  // #2ABCFB Accent
+    constexpr std::array<std::uint8_t, 4> rowDivider{24, 40, 59, 180};   // #18283B Surface High
+    constexpr std::array<std::uint8_t, 4> buttonNormal{24, 40, 59, 220};
+    constexpr std::array<std::uint8_t, 4> buttonHover{42, 74, 112, 245};
+    constexpr std::array<std::uint8_t, 4> buttonCloseHover{180, 48, 60, 245};
+    constexpr std::array<std::uint8_t, 4> iconColor{245, 249, 255, 250};
+    const std::array<std::uint8_t, 4> handleColor = hover == FooterHoverTarget::Grab
+        ? std::array<std::uint8_t, 4>{42, 188, 251, 255}
+        : std::array<std::uint8_t, 4>{167, 187, 205, 220};
 
     const int phoneH = static_cast<int>(phoneHeight);
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
-                  static_cast<int>(composite.width),
-                  static_cast<int>(kGrabHandleHeightPixels), background);
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
-                  static_cast<int>(composite.width), 2, separator);
-    const int handleWidth = std::max(64, std::min(220,
-        static_cast<int>(composite.width * 3U / 10U)));
-    constexpr int handleHeight = 10;
-    FillImageRect(composite.pixels, composite.width, composite.height,
-                  (static_cast<int>(composite.width) - handleWidth) / 2,
-                  phoneH + (static_cast<int>(kGrabHandleHeightPixels) - handleHeight) / 2,
-                  handleWidth, handleHeight, handle);
+    const int navH = static_cast<int>(kNavBarHeightPixels);
+    const int grabH = static_cast<int>(kGrabBarHeightPixels);
+    const int compW = static_cast<int>(composite.width);
 
-    // The lower-left 64x64 region is a separate Android Back target.
-    const auto backBtnColor = hover == FooterHoverTarget::Back ? footerButtonHover : footerButton;
-    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH,
-                  static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), backBtnColor);
-    const int centerY = phoneH + static_cast<int>(kGrabHandleHeightPixels / 2U);
-    const int backCenterX = static_cast<int>(kGrabHandleHeightPixels / 2U);
-    for (int step = 0; step < 10; ++step) {
-        for (int thickness = -2; thickness <= 2; ++thickness) {
+    // 1. ROW 1: Android System Navigation Bar
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH, compW, navH, navBackground);
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH, compW, 2, topAccent);
+
+    // 2. ROW 2: Dedicated Grab & Resize Bar
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH + navH, compW, grabH, grabBackground);
+    FillImageRect(composite.pixels, composite.width, composite.height, 0, phoneH + navH, compW, 1, rowDivider);
+
+    // Navigation buttons geometry
+    const int btnW = 44;
+    const int btnH = 36;
+    const int btnRadius = 8;
+    const int btnY = phoneH + (navH - btnH) / 2;
+    const int centerY = btnY + btnH / 2;
+
+    // Button 1: Android Back (<)
+    const int backLeft = 8;
+    const auto backBtnColor = hover == FooterHoverTarget::Back ? buttonHover : buttonNormal;
+    FillImageRoundedRect(composite.pixels, composite.width, composite.height, backLeft, btnY, btnW, btnH, btnRadius, backBtnColor);
+    const int backCenterX = backLeft + btnW / 2;
+    for (int step = 0; step < 8; ++step) {
+        for (int thickness = -1; thickness <= 1; ++thickness) {
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          backCenterX - 5 + step + thickness, centerY - step, footerIcon);
+                          backCenterX - 4 + step + thickness, centerY - step, iconColor);
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          backCenterX - 5 + step + thickness, centerY + step, footerIcon);
+                          backCenterX - 4 + step + thickness, centerY + step, iconColor);
         }
     }
 
-    // Android Home button (circle ◯) at [64, 128)
-    const int homeLeft = static_cast<int>(kGrabHandleHeightPixels);
-    if (homeLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
-        const auto homeBtnColor = hover == FooterHoverTarget::Home ? footerButtonHover : footerButton;
-        FillImageRect(composite.pixels, composite.width, composite.height, homeLeft, phoneH,
-                      static_cast<int>(kGrabHandleHeightPixels),
-                      static_cast<int>(kGrabHandleHeightPixels), homeBtnColor);
-        const int homeCenterX = homeLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
-        for (int dy = -9; dy <= 9; ++dy) {
-            for (int dx = -9; dx <= 9; ++dx) {
+    // Button 2: Android Home (◯)
+    const int homeLeft = backLeft + btnW + 6;
+    if (homeLeft + btnW <= compW - 60) {
+        const auto homeBtnColor = hover == FooterHoverTarget::Home ? buttonHover : buttonNormal;
+        FillImageRoundedRect(composite.pixels, composite.width, composite.height, homeLeft, btnY, btnW, btnH, btnRadius, homeBtnColor);
+        const int homeCenterX = homeLeft + btnW / 2;
+        for (int dy = -8; dy <= 8; ++dy) {
+            for (int dx = -8; dx <= 8; ++dx) {
                 const int r2 = dx * dx + dy * dy;
-                if (r2 >= 42 && r2 <= 72) {
+                if (r2 >= 32 && r2 <= 56) {
                     SetImagePixel(composite.pixels, composite.width, composite.height,
-                                  homeCenterX + dx, centerY + dy, footerIcon);
+                                  homeCenterX + dx, centerY + dy, iconColor);
                 }
             }
         }
     }
 
-    // Android Recents button (square ▢) at [128, 192)
-    const int recentsLeft = static_cast<int>(kGrabHandleHeightPixels * 2U);
-    if (recentsLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
-        const auto recentsBtnColor = hover == FooterHoverTarget::Recents ? footerButtonHover : footerButton;
-        FillImageRect(composite.pixels, composite.width, composite.height, recentsLeft, phoneH,
-                      static_cast<int>(kGrabHandleHeightPixels),
-                      static_cast<int>(kGrabHandleHeightPixels), recentsBtnColor);
-        const int recentsCenterX = recentsLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
-        for (int step = -7; step <= 7; ++step) {
-            for (int thickness = -1; thickness <= 1; ++thickness) {
+    // Button 3: Android Recents (▢)
+    const int recentsLeft = homeLeft + btnW + 6;
+    if (recentsLeft + btnW <= compW - 60) {
+        const auto recentsBtnColor = hover == FooterHoverTarget::Recents ? buttonHover : buttonNormal;
+        FillImageRoundedRect(composite.pixels, composite.width, composite.height, recentsLeft, btnY, btnW, btnH, btnRadius, recentsBtnColor);
+        const int recentsCenterX = recentsLeft + btnW / 2;
+        for (int step = -6; step <= 6; ++step) {
+            for (int thickness = -1; thickness <= 0; ++thickness) {
                 SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + step, centerY - 7 + thickness, footerIcon);
+                              recentsCenterX + step, centerY - 6 + thickness, iconColor);
                 SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + step, centerY + 7 + thickness, footerIcon);
+                              recentsCenterX + step, centerY + 6 + thickness, iconColor);
                 SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX - 7 + thickness, centerY + step, footerIcon);
+                              recentsCenterX - 6 + thickness, centerY + step, iconColor);
                 SetImagePixel(composite.pixels, composite.width, composite.height,
-                              recentsCenterX + 7 + thickness, centerY + step, footerIcon);
+                              recentsCenterX + 6 + thickness, centerY + step, iconColor);
             }
         }
     }
 
-    // SteamVR Virtual Keyboard button (⌨) at [192, 256)
-    const int kbLeft = static_cast<int>(kGrabHandleHeightPixels * 3U);
-    if (kbLeft + static_cast<int>(kGrabHandleHeightPixels) <= static_cast<int>(composite.width) - static_cast<int>(kGrabHandleHeightPixels * 2U)) {
-        const auto kbBtnColor = hover == FooterHoverTarget::Keyboard ? footerButtonHover : footerButton;
-        FillImageRect(composite.pixels, composite.width, composite.height, kbLeft, phoneH,
-                      static_cast<int>(kGrabHandleHeightPixels),
-                      static_cast<int>(kGrabHandleHeightPixels), kbBtnColor);
-        const int kbCenterX = kbLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
-        for (int step = -11; step <= 11; ++step) {
-            for (int thickness = -1; thickness <= 0; ++thickness) {
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              kbCenterX + step, centerY - 7 + thickness, footerIcon);
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              kbCenterX + step, centerY + 7 + thickness, footerIcon);
-            }
+    // Button 4: SteamVR Keyboard (⌨)
+    const int kbLeft = recentsLeft + btnW + 6;
+    if (kbLeft + btnW <= compW - 60) {
+        const auto kbBtnColor = hover == FooterHoverTarget::Keyboard ? buttonHover : buttonNormal;
+        FillImageRoundedRect(composite.pixels, composite.width, composite.height, kbLeft, btnY, btnW, btnH, btnRadius, kbBtnColor);
+        const int kbCenterX = kbLeft + btnW / 2;
+        for (int step = -9; step <= 9; ++step) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + step, centerY - 6, iconColor);
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + step, centerY + 6, iconColor);
         }
-        for (int step = -7; step <= 7; ++step) {
-            for (int thickness = -1; thickness <= 0; ++thickness) {
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              kbCenterX - 11 + thickness, centerY + step, footerIcon);
-                SetImagePixel(composite.pixels, composite.width, composite.height,
-                              kbCenterX + 11 + thickness, centerY + step, footerIcon);
-            }
+        for (int step = -6; step <= 6; ++step) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX - 9, centerY + step, iconColor);
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + 9, centerY + step, iconColor);
         }
-        for (int kx : {-7, -3, 1, 5, 8}) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY - 2, footerIcon);
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx + 1, centerY - 2, footerIcon);
+        for (int kx : {-6, -2, 2, 6}) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY - 2, iconColor);
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx + 1, centerY - 2, iconColor);
         }
-        for (int kx = -5; kx <= 5; ++kx) {
-            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY + 3, footerIcon);
+        for (int kx = -4; kx <= 4; ++kx) {
+            SetImagePixel(composite.pixels, composite.width, composite.height, kbCenterX + kx, centerY + 2, iconColor);
         }
     }
 
-    // Keep Close beside Back so the lower-right corner can use the panel-resize affordance.
-    const int closeLeft = std::max(0, static_cast<int>(composite.width) -
-        static_cast<int>(kGrabHandleHeightPixels * 2U));
-    const auto closeBtnColor = hover == FooterHoverTarget::Close ? footerButtonCloseHover : footerButton;
-    FillImageRect(composite.pixels, composite.width, composite.height,
-                  closeLeft, phoneH, static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), closeBtnColor);
-    const int closeX = closeLeft + static_cast<int>(kGrabHandleHeightPixels / 2U);
-    for (int step = -7; step <= 7; ++step) {
+    // Button 5: Close (×) placed on the far right of the Nav Row
+    const int closeLeft = std::max(0, compW - btnW - 8);
+    const auto closeBtnColor = hover == FooterHoverTarget::Close ? buttonCloseHover : buttonNormal;
+    FillImageRoundedRect(composite.pixels, composite.width, composite.height, closeLeft, btnY, btnW, btnH, btnRadius, closeBtnColor);
+    const int closeCenterX = closeLeft + btnW / 2;
+    for (int step = -6; step <= 6; ++step) {
         for (int thickness = -1; thickness <= 1; ++thickness) {
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          closeX + step, centerY + step + thickness, footerIcon);
+                          closeCenterX + step, centerY + step + thickness, iconColor);
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          closeX + step, centerY - step + thickness, footerIcon);
+                          closeCenterX + step, centerY - step + thickness, iconColor);
         }
     }
 
-    const int resizeLeft = std::max(0, static_cast<int>(composite.width) -
-                                       static_cast<int>(kGrabHandleHeightPixels));
-    const auto resizeBtnColor = hover == FooterHoverTarget::Resize ? footerButtonHover : footerButton;
-    FillImageRect(composite.pixels, composite.width, composite.height,
-                  resizeLeft, phoneH, static_cast<int>(kGrabHandleHeightPixels),
-                  static_cast<int>(kGrabHandleHeightPixels), resizeBtnColor);
-    const int resizeRight = resizeLeft + static_cast<int>(kGrabHandleHeightPixels) - 10;
-    const int resizeBottom = phoneH + static_cast<int>(kGrabHandleHeightPixels) - 10;
-    for (int step = 0; step < 18; ++step) {
-        for (int thickness = 0; thickness < 3; ++thickness) {
+    // ROW 2: Dedicated Grab & Resize Bar
+    const int grabRowY = phoneH + navH;
+    const int grabCenterY = grabRowY + grabH / 2;
+    const int handleWidth = std::max(120, std::min(240, compW * 4 / 10));
+    constexpr int handleHeight = 10;
+    const int handleLeft = (compW - handleWidth) / 2;
+    FillImageRoundedRect(composite.pixels, composite.width, composite.height,
+                         handleLeft, grabCenterY - handleHeight / 2,
+                         handleWidth, handleHeight, 5, handleColor);
+
+    // Resize button in bottom-right corner of Row 2
+    const int resizeLeft = std::max(0, compW - 36);
+    const int resizeY = grabRowY + (grabH - 30) / 2;
+    const auto resizeBtnColor = hover == FooterHoverTarget::Resize ? buttonHover : buttonNormal;
+    FillImageRoundedRect(composite.pixels, composite.width, composite.height,
+                         resizeLeft, resizeY, 30, 30, 6, resizeBtnColor);
+    const int resizeRight = resizeLeft + 22;
+    const int resizeBottom = resizeY + 22;
+    for (int step = 0; step < 14; ++step) {
+        for (int thickness = 0; thickness < 2; ++thickness) {
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          resizeRight - step, resizeBottom - thickness, footerIcon);
+                          resizeRight - step, resizeBottom - thickness, iconColor);
             SetImagePixel(composite.pixels, composite.width, composite.height,
-                          resizeRight - thickness, resizeBottom - step, footerIcon);
+                          resizeRight - thickness, resizeBottom - step, iconColor);
         }
     }
 }
@@ -1350,10 +1351,13 @@ public:
     bool AbsoluteForSettings(const phonecast::vr::OverlaySettings& settings,
                              vr::HmdMatrix34_t& absolute) const {
         if (settings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
-            if (cameraWorker) {
-                return cameraWorker->GetLatestPose(absolute);
+            if (cameraWorker && cameraWorker->GetLatestPose(absolute)) {
+                return true;
             }
-            return false;
+            vr::HmdMatrix34_t devicePose{};
+            if (!DevicePose(vr::k_unTrackedDeviceIndex_Hmd, devicePose)) return false;
+            absolute = Multiply(devicePose, LocalTransform(settings));
+            return true;
         }
         if (settings.placementMode == phonecast::vr::PlacementMode::WorldLocked &&
             settings.worldTransformValid) {
@@ -1430,6 +1434,14 @@ public:
                 if (!OverlayCall(overlayApi->SetOverlayTransformAbsolute(
                                      overlay, vr::TrackingUniverseStanding, &transform),
                                  "SetOverlayTransformAbsolute", error)) return false;
+            } else {
+                vr::HmdMatrix34_t hmdPose{};
+                if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
+                    transform = Multiply(hmdPose, LocalTransform(settings));
+                    if (!OverlayCall(overlayApi->SetOverlayTransformAbsolute(
+                                         overlay, vr::TrackingUniverseStanding, &transform),
+                                     "SetOverlayTransformAbsolute", error)) return false;
+                }
             }
         } else {
             vr::HmdMatrix34_t transform{};
@@ -1456,6 +1468,7 @@ public:
         CameraFrameSnapshot camSnapshot{};
         if (!cameraWorker->GetLatestCameraFrame(camSnapshot) || camSnapshot.rgbaBuffer.empty() ||
             camSnapshot.width == 0 || camSnapshot.height == 0) {
+            overlayApi->HideOverlay(passthroughOverlay);
             return;
         }
 
@@ -1487,7 +1500,10 @@ public:
 
         const int cropW = cropRight - cropLeft;
         const int cropH = cropBottom - cropTop;
-        if (cropW <= 32 || cropH <= 32) return;
+        if (cropW <= 32 || cropH <= 32) {
+            overlayApi->HideOverlay(passthroughOverlay);
+            return;
+        }
 
         std::vector<uint8_t> cutout(static_cast<std::size_t>(cropW) * cropH * 4U);
         constexpr int feather = 18;
@@ -1523,7 +1539,12 @@ public:
     void UpdateControllerPlacement() {
         if (grabbedDevice != vr::k_unTrackedDeviceIndexInvalid) return;
         if (currentSettings.placementMode == phonecast::vr::PlacementMode::PhoneTracked) {
-            if (!cameraWorker) return;
+            if (!cameraWorker) {
+                if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+                    overlayApi->HideOverlay(passthroughOverlay);
+                }
+                return;
+            }
             vr::HmdMatrix34_t transform{};
             float physicalWidthMeters = 0.0F;
             if (cameraWorker->GetLatestPose(transform, &physicalWidthMeters)) {
@@ -1532,6 +1553,10 @@ public:
                 }
                 overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
                 UpdatePassthroughCutout(transform, physicalWidthMeters);
+            } else {
+                if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+                    overlayApi->HideOverlay(passthroughOverlay);
+                }
             }
             return;
         }
@@ -1963,12 +1988,31 @@ public:
         }
     }
 
+    bool UploadCompositeTexture(std::string& error) {
+        if (!hasFrame || compositeFrame.pixels.empty() || overlay == vr::k_ulOverlayHandleInvalid) return false;
+#ifdef _WIN32
+        if (!EnsureTexture(compositeFrame.width, compositeFrame.height, error)) return false;
+        context->UpdateSubresource(texture, 0, nullptr, compositeFrame.pixels.data(),
+                                   compositeFrame.width * 4U, 0);
+        context->Flush();
+        vr::Texture_t tex{texture, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+        return OverlayCall(overlayApi->SetOverlayTexture(overlay, &tex), "SetOverlayTexture", error);
+#else
+        if (vulkanTexture == nullptr) {
+            error = "Vulkan texture is not initialized.";
+            return false;
+        }
+        return vulkanTexture->Update(overlayApi, overlay, compositeFrame.pixels.data(),
+                                     compositeFrame.width, compositeFrame.height, error);
+#endif
+    }
+
     void UpdateFooterHover(FooterHoverTarget hover) {
         if (!hasFrame || compositeFrame.pixels.empty() || compositeFrame.height <= kGrabHandleHeightPixels) return;
         const auto phoneHeight = compositeFrame.height - kGrabHandleHeightPixels;
         DrawGrabFooter(compositeFrame, phoneHeight, hover);
-        overlayApi->SetOverlayRaw(overlay, compositeFrame.pixels.data(),
-                                  compositeFrame.width, compositeFrame.height, 4);
+        std::string uploadError;
+        UploadCompositeTexture(uploadError);
     }
 
     vr::TrackedDeviceIndex_t ResolvePointerDevice(
@@ -2737,21 +2781,9 @@ bool OpenVrOverlayRenderer::SubmitFrame(const core::VideoFrame& frame, std::stri
         return false;
     }
     AddGrabHandle(frame, impl_->compositeFrame, impl_->currentFooterHover);
+    impl_->hasFrame = true;
+    if (!impl_->UploadCompositeTexture(error)) return false;
     const auto& composite = impl_->compositeFrame;
-#ifdef _WIN32
-    if (!impl_->EnsureTexture(composite.width, composite.height, error)) return false;
-    impl_->context->UpdateSubresource(impl_->texture, 0, nullptr, composite.pixels.data(),
-                                     composite.width * 4U, 0);
-    impl_->context->Flush();
-    vr::Texture_t texture{impl_->texture, vr::TextureType_DirectX, vr::ColorSpace_Auto};
-    if (!impl_->OverlayCall(impl_->overlayApi->SetOverlayTexture(impl_->overlay, &texture),
-                            "SetOverlayTexture", error)) return false;
-#else
-    if (impl_->vulkanTexture == nullptr ||
-        !impl_->vulkanTexture->Update(impl_->overlayApi, impl_->overlay,
-                                      composite.pixels.data(), composite.width,
-                                      composite.height, error)) return false;
-#endif
     const vr::HmdVector2_t mouseScale{{static_cast<float>(composite.width),
                                       static_cast<float>(composite.height)}};
     if (!impl_->OverlayCall(impl_->overlayApi->SetOverlayMouseScale(impl_->overlay, &mouseScale),
@@ -3013,11 +3045,14 @@ bool OpenVrOverlayRenderer::PumpEvents() {
                 impl_->hideRequested = true;
                 impl_->logger.Log(core::LogLevel::Info, "openvr-input",
                                   "Phone hide requested from the overlay close button.");
-            } else if (impl_->interaction.IsResizeButton(
-                           event.data.mouse.x, event.data.mouse.y)) {
-                impl_->BeginResize(event.data.mouse.x);
+            } else if (event.data.mouse.y < static_cast<float>(kGrabBarHeightPixels)) {
+                if (impl_->interaction.IsResizeButton(event.data.mouse.x, event.data.mouse.y)) {
+                    impl_->BeginResize(event.data.mouse.x);
+                } else {
+                    impl_->BeginGrab(event.trackedDeviceIndex);
+                }
             } else if (impl_->interaction.IsGrabHandle(event.data.mouse.y)) {
-                impl_->BeginGrab(event.trackedDeviceIndex);
+                // Click on blank background area of the nav bar; consume without sending touch to phone.
             } else {
                 impl_->pointerDown = true;
                 impl_->lastPointerX = event.data.mouse.x;
@@ -3035,22 +3070,30 @@ bool OpenVrOverlayRenderer::PumpEvents() {
                     event.data.mouse.x, event.data.mouse.y));
             } else if (impl_->interaction.IsGrabHandle(event.data.mouse.y)) {
                 FooterHoverTarget target = FooterHoverTarget::Grab;
-                if (impl_->interaction.IsBackButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Back;
-                } else if (impl_->interaction.IsHomeButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Home;
-                } else if (impl_->interaction.IsRecentsButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Recents;
-                } else if (impl_->interaction.IsKeyboardButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Keyboard;
-                } else if (impl_->interaction.IsCloseButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Close;
-                } else if (impl_->interaction.IsResizeButton(event.data.mouse.x, event.data.mouse.y)) {
-                    target = FooterHoverTarget::Resize;
+                if (event.data.mouse.y < static_cast<float>(kGrabBarHeightPixels)) {
+                    if (impl_->interaction.IsResizeButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Resize;
+                    }
+                } else {
+                    if (impl_->interaction.IsBackButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Back;
+                    } else if (impl_->interaction.IsHomeButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Home;
+                    } else if (impl_->interaction.IsRecentsButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Recents;
+                    } else if (impl_->interaction.IsKeyboardButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Keyboard;
+                    } else if (impl_->interaction.IsCloseButton(event.data.mouse.x, event.data.mouse.y)) {
+                        target = FooterHoverTarget::Close;
+                    } else {
+                        target = FooterHoverTarget::None;
+                    }
                 }
                 if (target != impl_->currentFooterHover) {
                     impl_->currentFooterHover = target;
-                    impl_->TriggerHaptic(impl_->overlay, 0.015F, 50.0F, 0.25F, event.trackedDeviceIndex);
+                    if (target != FooterHoverTarget::None) {
+                        impl_->TriggerHaptic(impl_->overlay, 0.015F, 50.0F, 0.25F, event.trackedDeviceIndex);
+                    }
                     impl_->UpdateFooterHover(target);
                 }
             } else {

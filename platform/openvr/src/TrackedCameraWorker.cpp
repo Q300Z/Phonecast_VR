@@ -316,7 +316,7 @@ bool TrackedCameraWorker::DetectScreenCorners(
 
         for (uint32_t y = 16; y < frame.height - 16; y += 16) {
             for (uint32_t x = 16; x < frame.width - 16; x += 16) {
-                if (frame.GetLuma(x, y) > 120) {
+                if (frame.GetLuma(x, y) > 60) {
                     const float fx = static_cast<float>(x);
                     const float fy = static_cast<float>(y);
                     minX = std::min(minX, fx);
@@ -483,6 +483,7 @@ void TrackedCameraWorker::ProcessFrame(
 
 void TrackedCameraWorker::WorkerLoop() {
     bool streamingAcquired = false;
+    auto lastFailedLogTime = std::chrono::steady_clock::time_point{};
 
     while (running_) {
         if (!active_) {
@@ -501,6 +502,8 @@ void TrackedCameraWorker::WorkerLoop() {
         if (!streamingAcquired && cameraSource_) {
             if (cameraSource_->AcquireStreaming()) {
                 streamingAcquired = true;
+                logger_.Log(core::LogLevel::Info, "camera-worker",
+                            "Headset camera (IVRTrackedCamera) streaming acquired successfully.");
                 cameraSource_->GetIntrinsics(intrinsics_);
                 cameraSource_->GetCameraToHeadTransform(cameraToHeadTransform_);
                 uint32_t w = 0, h = 0, b = 0;
@@ -509,6 +512,14 @@ void TrackedCameraWorker::WorkerLoop() {
                     frameHeight_ = h;
                     frameBufferSize_ = b;
                     frameBuffer_.resize(frameBufferSize_, 0);
+                }
+            } else {
+                const auto now = std::chrono::steady_clock::now();
+                if (now - lastFailedLogTime > std::chrono::seconds(5)) {
+                    lastFailedLogTime = now;
+                    logger_.Log(core::LogLevel::Warning, "camera-worker",
+                                "IVRTrackedCamera acquisition failed: headset camera is unavailable or "
+                                "disabled in SteamVR settings (or running on standalone Steam Frame).");
                 }
             }
         }

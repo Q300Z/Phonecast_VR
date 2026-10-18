@@ -7,6 +7,12 @@ namespace {
 float ClampUnit(float value) noexcept {
     return std::max(0.0F, std::min(1.0F, value));
 }
+
+bool InNavRow(float overlayY, std::uint32_t bottomInset) noexcept {
+    if (bottomInset == 0 || overlayY < 0.0F || overlayY >= static_cast<float>(bottomInset)) return false;
+    // Lower 40% is reserved for grab/resize bar; upper 60% is for navigation buttons.
+    return overlayY >= static_cast<float>(bottomInset) * 0.40F;
+}
 }  // namespace
 
 void OverlayInteractionController::SetSurfaceSize(std::uint32_t width,
@@ -23,7 +29,7 @@ bool OverlayInteractionController::IsGrabHandle(float overlayY) const noexcept {
 }
 
 bool OverlayInteractionController::IsBackButton(float overlayX, float overlayY) const noexcept {
-    return IsGrabHandle(overlayY) && overlayX >= 0.0F &&
+    return InNavRow(overlayY, bottomInset_) && overlayX >= 0.0F &&
            overlayX < static_cast<float>(bottomInset_);
 }
 
@@ -31,25 +37,25 @@ bool OverlayInteractionController::IsHomeButton(float overlayX, float overlayY) 
     const float left = static_cast<float>(bottomInset_);
     const float right = static_cast<float>(bottomInset_ * 2U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsRecentsButton(float overlayX, float overlayY) const noexcept {
     const float left = static_cast<float>(bottomInset_ * 2U);
     const float right = static_cast<float>(bottomInset_ * 3U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsKeyboardButton(float overlayX, float overlayY) const noexcept {
     const float left = static_cast<float>(bottomInset_ * 3U);
     const float right = static_cast<float>(bottomInset_ * 4U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return IsGrabHandle(overlayY) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsCloseButton(float overlayX, float overlayY) const noexcept {
-    return IsGrabHandle(overlayY) && overlayX >=
+    return InNavRow(overlayY, bottomInset_) && overlayX >=
            static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U) &&
            overlayX < static_cast<float>(width_ > bottomInset_ ? width_ - bottomInset_ : 0U);
 }
