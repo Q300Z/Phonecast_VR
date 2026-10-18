@@ -1973,7 +1973,7 @@ bool OpenVrOverlayRenderer::Start(const phonecast::vr::OverlaySettings& settings
                                 &impl_->notificationOverlay),
                             "Create notification overlay", error) ||
         !impl_->OverlayCall(impl_->overlayApi->SetOverlayWidthInMeters(
-                                impl_->notificationOverlay, 0.48F),
+                                impl_->notificationOverlay, 0.42F),
                             "Set notification width", error) ||
         !impl_->OverlayCall(impl_->overlayApi->SetOverlaySortOrder(
                                 impl_->notificationOverlay, 110U),
@@ -2017,7 +2017,7 @@ bool OpenVrOverlayRenderer::Start(const phonecast::vr::OverlaySettings& settings
                                                 {0.0F, 0.0F, 1.0F, -0.60F}}};
     auto notificationTransform = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.18F},
                                                      {0.0F, 1.0F, 0.0F, 0.12F},
-                                                     {0.0F, 0.0F, 1.0F, -0.75F}}};
+                                                     {0.0F, 0.0F, 1.0F, -1.15F}}};
     if (!impl_->OverlayCall(impl_->overlayApi->SetOverlayTransformTrackedDeviceRelative(
                                 impl_->settingsOverlay, vr::k_unTrackedDeviceIndex_Hmd,
                                 &settingsTransform),

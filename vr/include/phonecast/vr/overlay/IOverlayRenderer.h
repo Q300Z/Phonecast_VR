@@ -123,8 +123,8 @@ struct OverlaySettings {
     bool worldTransformValid{false};
     float glancePreviewScale{0.55F};
     std::uint32_t radialLongPressMilliseconds{600};
-    float notificationWidthMeters{0.55F};
-    float notificationDistanceMeters{0.75F};
+    float notificationWidthMeters{0.42F};
+    float notificationDistanceMeters{1.15F};
     float notificationOffsetXMeters{0.18F};
     float notificationOffsetYMeters{0.12F};
     float startDistanceMeters{0.85F};

@@ -393,8 +393,8 @@ bool TrackedCameraWorker::DetectScreenCorners(
     core::tracking::ScreenCorners2D& outCorners) {
     core::tracking::LineFitterRansac::ScanlineParams scanParams{};
     scanParams.numScanlines = 30;
-    scanParams.scanlineHalfLengthPixels = 24.0F;
-    scanParams.minGradientMagnitude = 20.0F;
+    scanParams.scanlineHalfLengthPixels = priorCorners_.valid ? 24.0F : 32.0F;
+    scanParams.minGradientMagnitude = priorCorners_.valid ? 20.0F : 16.0F;
     scanParams.marginRatio = 0.15F;
 
     core::tracking::Vector2 ptTL{}, ptTR{}, ptBR{}, ptBL{};
@@ -473,12 +473,33 @@ bool TrackedCameraWorker::DetectScreenCorners(
     }
 
     core::tracking::ScreenBorders borders{};
-    borders.top = lineFitter_.DetectAndFit(frame, ptTL, ptTR, scanParams);
-    borders.right = lineFitter_.DetectAndFit(frame, ptTR, ptBR, scanParams);
-    borders.bottom = lineFitter_.DetectAndFit(frame, ptBL, ptBR, scanParams);
-    borders.left = lineFitter_.DetectAndFit(frame, ptTL, ptBL, scanParams);
-    borders.allValid = borders.top.valid && borders.right.valid &&
-                       borders.bottom.valid && borders.left.valid;
+    if (seedFound) {
+        borders.top = lineFitter_.DetectAndFit(frame, ptTL, ptTR, scanParams);
+        borders.right = lineFitter_.DetectAndFit(frame, ptTR, ptBR, scanParams);
+        borders.bottom = lineFitter_.DetectAndFit(frame, ptBL, ptBR, scanParams);
+        borders.left = lineFitter_.DetectAndFit(frame, ptTL, ptBL, scanParams);
+        borders.allValid = borders.top.valid && borders.right.valid &&
+                           borders.bottom.valid && borders.left.valid;
+    }
+
+    if (!borders.IsValid() && !priorCorners_.valid) {
+        // Fallback: try nominal center seed in lower-center area where phone is typically held
+        const float cx = static_cast<float>(frame.width) * 0.5F;
+        const float cy = static_cast<float>(frame.height) * 0.52F;
+        const float halfW = static_cast<float>(frame.width) * 0.18F;
+        const float halfH = static_cast<float>(frame.height) * 0.25F;
+        const auto nTL = core::tracking::Vector2{cx - halfW, cy - halfH};
+        const auto nTR = core::tracking::Vector2{cx + halfW, cy - halfH};
+        const auto nBR = core::tracking::Vector2{cx + halfW, cy + halfH};
+        const auto nBL = core::tracking::Vector2{cx - halfW, cy + halfH};
+
+        borders.top = lineFitter_.DetectAndFit(frame, nTL, nTR, scanParams);
+        borders.right = lineFitter_.DetectAndFit(frame, nTR, nBR, scanParams);
+        borders.bottom = lineFitter_.DetectAndFit(frame, nBL, nBR, scanParams);
+        borders.left = lineFitter_.DetectAndFit(frame, nTL, nBL, scanParams);
+        borders.allValid = borders.top.valid && borders.right.valid &&
+                           borders.bottom.valid && borders.left.valid;
+    }
 
     if (borders.IsValid()) {
         outCorners = core::tracking::CornerIntersection::ComputeCorners(borders);

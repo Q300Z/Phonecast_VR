@@ -251,23 +251,21 @@ std::vector<Vector2> LineFitterRansac::DetectEdgePoints(
         const float t = (static_cast<float>(m) + 0.5F) / static_cast<float>(scanParams.numScanlines);
         const Vector2 center = trimmedStart + dir * (t * effectiveLen);
 
-        bool scanlineValid = true;
-        for (int32_t s = -halfL; s <= halfL; ++s) {
-            const Vector2 samplePos = center + normal * static_cast<float>(s);
-            const auto px = static_cast<int32_t>(std::round(samplePos.x));
-            const auto py = static_cast<int32_t>(std::round(samplePos.y));
-
-            if (px < 0 || px >= static_cast<int32_t>(frame.width) ||
-                py < 0 || py >= static_cast<int32_t>(frame.height)) {
-                scanlineValid = false;
-                break;
-            }
-            luma[static_cast<size_t>(s + halfL)] = static_cast<float>(frame.GetLuma(
-                static_cast<uint32_t>(px), static_cast<uint32_t>(py)));
+        // Verify center point is within image bounds
+        if (center.x < 0.0F || center.x >= static_cast<float>(frame.width) ||
+            center.y < 0.0F || center.y >= static_cast<float>(frame.height)) {
+            continue;
         }
 
-        if (!scanlineValid) {
-            continue;
+        for (int32_t s = -halfL; s <= halfL; ++s) {
+            const Vector2 samplePos = center + normal * static_cast<float>(s);
+            const int32_t px = std::clamp(
+                static_cast<int32_t>(std::round(samplePos.x)), 0, static_cast<int32_t>(frame.width - 1));
+            const int32_t py = std::clamp(
+                static_cast<int32_t>(std::round(samplePos.y)), 0, static_cast<int32_t>(frame.height - 1));
+
+            luma[static_cast<size_t>(s + halfL)] = static_cast<float>(frame.GetLuma(
+                static_cast<uint32_t>(px), static_cast<uint32_t>(py)));
         }
 
         // 1D Central Difference Gradient: |luma[s+1] - luma[s-1]|

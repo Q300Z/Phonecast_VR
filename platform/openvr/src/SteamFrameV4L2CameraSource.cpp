@@ -188,7 +188,7 @@ public:
         intrinsics.imageHeight = height;
         // Default nominal wide FOV (~90 deg) for Steam Frame IMX616 front sensor
         intrinsics.fx = static_cast<float>(width) * 0.60F;
-        intrinsics.fy = static_cast<float>(height) * 0.60F;
+        intrinsics.fy = static_cast<float>(width) * 0.60F;
         intrinsics.cx = static_cast<float>(width) * 0.50F;
         intrinsics.cy = static_cast<float>(height) * 0.50F;
         return true;
