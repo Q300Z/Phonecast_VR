@@ -493,5 +493,23 @@ public final class StreamProtocolTest {
         }
         assertEquals(16, imuFrames.size());
     }
+
+    @Test public void testTrackingCapabilityNotification() {
+        final boolean[] trackingNotified = new boolean[1];
+        NetworkStreamer.Listener listener = new NetworkStreamer.Listener() {
+            @Override public void onConnectionChanged(boolean connected, String message) {}
+            @Override public void onKeyFrameNeeded() {}
+            @Override public void onRemoteInput(RemoteInputEvent event) {}
+            @Override public void onRemoteText(String text) {}
+            @Override public void onNotificationOpen(long actionToken) {}
+            @Override public void onAudioCapability(boolean supported) {}
+            @Override public void onTrackingCapability(boolean supported) {
+                trackingNotified[0] = supported;
+            }
+        };
+
+        listener.onTrackingCapability(true);
+        assertTrue(trackingNotified[0]);
+    }
 }
 

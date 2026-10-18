@@ -22,6 +22,7 @@ final class NetworkStreamer {
         void onRemoteText(String text);
         void onNotificationOpen(long actionToken);
         void onAudioCapability(boolean supported);
+        default void onTrackingCapability(boolean supported) {}
     }
 
     private static final int CONNECT_TIMEOUT_MILLIS = 3000;
@@ -432,6 +433,7 @@ final class NetworkStreamer {
                     }
                     if (!trackingSupported && TrackingProtocol.hasCapability(payload)) {
                         trackingSupported = true;
+                        listener.onTrackingCapability(true);
                         wake();
                     }
                     roundTripMicros.set(Math.max(0L,

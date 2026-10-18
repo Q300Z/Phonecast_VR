@@ -138,6 +138,8 @@ public final class ScreenCaptureService extends Service {
     private PhoneAudioMuteController phoneAudioMute;
     private ScreenBrightnessController brightnessController;
     private ScreenTimeoutController timeoutController;
+    private CornerFiducialsController fiducialsController;
+    private boolean trackingActive;
     private PowerManager.WakeLock screenWakeLock;
     private long audioGeneration;
     private String audioStatus = "Audio off";
@@ -216,6 +218,7 @@ public final class ScreenCaptureService extends Service {
         phoneAudioMute = AndroidPhoneAudioMute.create(this);
         brightnessController = AndroidScreenBrightness.create(this);
         timeoutController = AndroidScreenTimeout.create(this);
+        fiducialsController = new CornerFiducialsController(this);
         phoneAudioMute.setRequested(getSharedPreferences(PREFERENCES,MODE_PRIVATE)
                 .getBoolean(AndroidPhoneAudioMute.PREFERENCE_ENABLED,false));
         codecThread = new HandlerThread("phonecast-avc-output");
@@ -328,6 +331,10 @@ public final class ScreenCaptureService extends Service {
 
                 @Override public void onAudioCapability(boolean supported) {
                     mainHandler.post(() -> updateAudioCapability(supported));
+                }
+
+                @Override public void onTrackingCapability(boolean supported) {
+                    mainHandler.post(() -> updateTrackingCapability(supported));
                 }
 
                 @Override public void onNotificationOpen(long actionToken) {
@@ -627,7 +634,24 @@ public final class ScreenCaptureService extends Service {
         }
     }
 
+    private void updateTrackingCapability(boolean supported) {
+        trackingActive = supported;
+        if (fiducialsController != null) {
+            fiducialsController.setActive(supported);
+        }
+        if (trackingActive) {
+            mainHandler.removeCallbacks(dimScreen);
+            if (brightnessController != null) {
+                brightnessController.restoreAndRelease();
+            }
+            updateNotification("Casting · phone tracking active (dimming disabled)");
+        } else {
+            reconcileBrightnessPreference();
+        }
+    }
+
     private boolean brightnessRequested() {
+        if (trackingActive) return false;
         return getSharedPreferences(PREFERENCES, MODE_PRIVATE).getBoolean(
                 AndroidScreenBrightness.PREFERENCE_ENABLED,
                 AndroidScreenBrightness.DEFAULT_ENABLED);
@@ -635,6 +659,11 @@ public final class ScreenCaptureService extends Service {
 
     private void reconcileBrightnessPreference() {
         mainHandler.removeCallbacks(dimScreen);
+        if (trackingActive) {
+            if (brightnessController != null) brightnessController.restoreAndRelease();
+            updateNotification("Casting · phone tracking active (dimming disabled)");
+            return;
+        }
         if (brightnessRequested()) scheduleDim();
         else if (!brightnessController.restoreAndRelease())
             Log.w(TAG, "Could not restore brightness after dimming was disabled");
@@ -644,7 +673,7 @@ public final class ScreenCaptureService extends Service {
 
     private void scheduleDim() {
         mainHandler.removeCallbacks(dimScreen);
-        if (!brightnessRequested() || projection == null || stopping ||
+        if (trackingActive || !brightnessRequested() || projection == null || stopping ||
                 !brightnessController.canWrite()) return;
         int seconds = AndroidScreenBrightness.delaySeconds(
                 getSharedPreferences(PREFERENCES, MODE_PRIVATE));
@@ -692,6 +721,8 @@ public final class ScreenCaptureService extends Service {
 
     private void stopCaptureResources(boolean stopProjection) {
         mainHandler.removeCallbacks(dimScreen);
+        trackingActive = false;
+        if (fiducialsController != null) fiducialsController.setActive(false);
         if (brightnessController != null && !brightnessController.restoreAndRelease())
             Log.w(TAG, "Could not restore brightness while stopping capture");
         if (timeoutController != null && !timeoutController.restore())

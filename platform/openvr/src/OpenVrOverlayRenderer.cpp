@@ -86,6 +86,92 @@ float Clamp(float value, float minimum, float maximum) {
     return std::max(minimum, std::min(maximum, value));
 }
 
+struct Transform3D {
+    core::tracking::Vector3 pos{};
+    core::tracking::Quaternion rot{1.0F, 0.0F, 0.0F, 0.0F};
+};
+
+Transform3D HmdMatrixToTransform(const vr::HmdMatrix34_t& m) {
+    Transform3D t;
+    t.pos = {m.m[0][3], m.m[1][3], m.m[2][3]};
+    const float tr = m.m[0][0] + m.m[1][1] + m.m[2][2];
+    if (tr > 0.0F) {
+        const float s = std::sqrt(tr + 1.0F) * 2.0F;
+        t.rot.w = 0.25F * s;
+        t.rot.x = (m.m[2][1] - m.m[1][2]) / s;
+        t.rot.y = (m.m[0][2] - m.m[2][0]) / s;
+        t.rot.z = (m.m[1][0] - m.m[0][1]) / s;
+    } else if ((m.m[0][0] > m.m[1][1]) && (m.m[0][0] > m.m[2][2])) {
+        const float s = std::sqrt(1.0F + m.m[0][0] - m.m[1][1] - m.m[2][2]) * 2.0F;
+        t.rot.w = (m.m[2][1] - m.m[1][2]) / s;
+        t.rot.x = 0.25F * s;
+        t.rot.y = (m.m[0][1] + m.m[1][0]) / s;
+        t.rot.z = (m.m[0][2] + m.m[2][0]) / s;
+    } else if (m.m[1][1] > m.m[2][2]) {
+        const float s = std::sqrt(1.0F + m.m[1][1] - m.m[0][0] - m.m[2][2]) * 2.0F;
+        t.rot.w = (m.m[0][2] - m.m[2][0]) / s;
+        t.rot.x = (m.m[0][1] + m.m[1][0]) / s;
+        t.rot.y = 0.25F * s;
+        t.rot.z = (m.m[1][2] + m.m[2][1]) / s;
+    } else {
+        const float s = std::sqrt(1.0F + m.m[2][2] - m.m[0][0] - m.m[1][1]) * 2.0F;
+        t.rot.w = (m.m[1][0] - m.m[0][1]) / s;
+        t.rot.x = (m.m[0][2] + m.m[2][0]) / s;
+        t.rot.y = (m.m[1][2] + m.m[2][1]) / s;
+        t.rot.z = 0.25F * s;
+    }
+    t.rot = t.rot.Normalized();
+    return t;
+}
+
+vr::HmdMatrix34_t TransformToHmdMatrix(const Transform3D& t) {
+    const auto& q = t.rot;
+    vr::HmdMatrix34_t m{};
+    m.m[0][0] = 1.0F - 2.0F * (q.y * q.y + q.z * q.z);
+    m.m[0][1] = 2.0F * (q.x * q.y - q.w * q.z);
+    m.m[0][2] = 2.0F * (q.x * q.z + q.w * q.y);
+    m.m[0][3] = t.pos.x;
+
+    m.m[1][0] = 2.0F * (q.x * q.y + q.w * q.z);
+    m.m[1][1] = 1.0F - 2.0F * (q.x * q.x + q.z * q.z);
+    m.m[1][2] = 2.0F * (q.y * q.z - q.w * q.x);
+    m.m[1][3] = t.pos.y;
+
+    m.m[2][0] = 2.0F * (q.x * q.z - q.w * q.y);
+    m.m[2][1] = 2.0F * (q.y * q.z + q.w * q.x);
+    m.m[2][2] = 1.0F - 2.0F * (q.x * q.x + q.y * q.y);
+    m.m[2][3] = t.pos.z;
+    return m;
+}
+
+core::tracking::Quaternion Slerp(const core::tracking::Quaternion& q0, core::tracking::Quaternion q1, float t) {
+    float dot = q0.w * q1.w + q0.x * q1.x + q0.y * q1.y + q0.z * q1.z;
+    if (dot < 0.0F) {
+        dot = -dot;
+        q1 = {-q1.w, -q1.x, -q1.y, -q1.z};
+    }
+    if (dot > 0.9995F) {
+        return core::tracking::Quaternion{
+            q0.w + t * (q1.w - q0.w),
+            q0.x + t * (q1.x - q0.x),
+            q0.y + t * (q1.y - q0.y),
+            q0.z + t * (q1.z - q0.z)
+        }.Normalized();
+    }
+    const float theta0 = std::acos(std::clamp(dot, -1.0F, 1.0F));
+    const float theta = theta0 * t;
+    const float sinTheta0 = std::sin(theta0);
+    const float sinTheta = std::sin(theta);
+    const float s0 = std::cos(theta) - dot * sinTheta / sinTheta0;
+    const float s1 = sinTheta / sinTheta0;
+    return core::tracking::Quaternion{
+        s0 * q0.w + s1 * q1.w,
+        s0 * q0.x + s1 * q1.x,
+        s0 * q0.y + s1 * q1.y,
+        s0 * q0.z + s1 * q1.z
+    }.Normalized();
+}
+
 bool IsControllerMode(phonecast::vr::PlacementMode mode) {
     return mode == phonecast::vr::PlacementMode::LeftControllerLocked ||
            mode == phonecast::vr::PlacementMode::RightControllerLocked;
@@ -1043,26 +1129,68 @@ public:
             float physicalWidthMeters = 0.0F;
             const bool poseValid = cameraWorker->GetLatestPose(transform, &physicalWidthMeters);
 
+            vr::HmdMatrix34_t targetTransform{};
+            float targetAlpha = 0.0F;
+            float targetWidth = 0.0F;
+
             if (poseValid) {
-                if (physicalWidthMeters > 0.0F) {
-                    overlayApi->SetOverlayWidthInMeters(overlay, physicalWidthMeters);
-                }
-                overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &transform);
-                overlayApi->SetOverlayAlpha(overlay, currentSettings.alpha);
-                UpdatePassthroughCutout(transform, physicalWidthMeters);
+                targetTransform = transform;
+                targetAlpha = currentSettings.alpha;
+                targetWidth = physicalWidthMeters > 0.0F ? physicalWidthMeters : 0.072F;
             } else {
-                if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
-                    overlayApi->HideOverlay(passthroughOverlay);
-                }
                 vr::HmdMatrix34_t hmdPose{};
                 if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
                     auto searchOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
                                                           {0.0F, 1.0F, 0.0F, -0.15F},
                                                           {0.0F, 0.0F, 1.0F, -0.45F}}};
-                    auto searchTransform = Multiply(hmdPose, searchOffset);
-                    overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &searchTransform);
-                    overlayApi->SetOverlayAlpha(overlay, currentSettings.alpha * 0.65F);
+                    targetTransform = Multiply(hmdPose, searchOffset);
+                } else if (smoothedPhonePlacementInitialized) {
+                    targetTransform = smoothedPhoneTransform;
                 }
+                targetAlpha = currentSettings.alpha * 0.65F;
+                targetWidth = smoothedPhonePlacementInitialized ? smoothedPhoneWidth : 0.072F;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (!smoothedPhonePlacementInitialized) {
+                smoothedPhoneTransform = targetTransform;
+                smoothedPhoneAlpha = targetAlpha;
+                smoothedPhoneWidth = targetWidth;
+                smoothedPhonePlacementInitialized = true;
+                lastPhonePlacementTime = now;
+            } else {
+                float dt = std::chrono::duration<float>(now - lastPhonePlacementTime).count();
+                lastPhonePlacementTime = now;
+                dt = std::clamp(dt, 0.001F, 0.1F);
+
+                // Smooth critically-damped interpolation (tau = 0.08s -> ~250ms convergence)
+                const float factor = 1.0F - std::exp(-dt / 0.08F);
+
+                const auto currT = HmdMatrixToTransform(smoothedPhoneTransform);
+                const auto targetT = HmdMatrixToTransform(targetTransform);
+
+                core::tracking::Vector3 newPos{
+                    currT.pos.x + (targetT.pos.x - currT.pos.x) * factor,
+                    currT.pos.y + (targetT.pos.y - currT.pos.y) * factor,
+                    currT.pos.z + (targetT.pos.z - currT.pos.z) * factor
+                };
+                core::tracking::Quaternion newRot = Slerp(currT.rot, targetT.rot, factor);
+
+                smoothedPhoneTransform = TransformToHmdMatrix({newPos, newRot});
+                smoothedPhoneAlpha += (targetAlpha - smoothedPhoneAlpha) * factor;
+                smoothedPhoneWidth += (targetWidth - smoothedPhoneWidth) * factor;
+            }
+
+            if (smoothedPhoneWidth > 0.0F) {
+                overlayApi->SetOverlayWidthInMeters(overlay, smoothedPhoneWidth);
+            }
+            overlayApi->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &smoothedPhoneTransform);
+            overlayApi->SetOverlayAlpha(overlay, smoothedPhoneAlpha);
+
+            if (poseValid) {
+                UpdatePassthroughCutout(smoothedPhoneTransform, smoothedPhoneWidth);
+            } else if (passthroughOverlay != vr::k_ulOverlayHandleInvalid) {
+                overlayApi->HideOverlay(passthroughOverlay);
             }
 
             if (debugActive || phoneTrackedMode) {
@@ -1073,6 +1201,8 @@ public:
             }
             return;
         }
+
+        smoothedPhonePlacementInitialized = false;
 
         if (debugActive && cameraWorker) {
             vr::HmdMatrix34_t transform{};
@@ -2143,6 +2273,11 @@ public:
     std::unique_ptr<SteamFrameVulkanTexture> vulkanTexture;
 #endif
     std::unique_ptr<TrackedCameraWorker> cameraWorker;
+    bool smoothedPhonePlacementInitialized{false};
+    vr::HmdMatrix34_t smoothedPhoneTransform{};
+    float smoothedPhoneAlpha{0.0F};
+    float smoothedPhoneWidth{0.0F};
+    std::chrono::steady_clock::time_point lastPhonePlacementTime{};
 };
 
 OpenVrOverlayRenderer::OpenVrOverlayRenderer(core::ILogger& logger, std::string executablePath)

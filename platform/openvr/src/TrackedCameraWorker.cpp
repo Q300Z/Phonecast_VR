@@ -609,14 +609,32 @@ void TrackedCameraWorker::ProcessFrame(
     if (cornersFound && hasMetrics && currentMetrics.IsValid()) {
         const auto pnpResult = pnpSolver_.Solve(corners, currentMetrics, intrinsics_);
         if (pnpResult.success) {
+            core::tracking::Vector3 cameraGravity{0.0F, 1.0F, 0.0F};
+            const auto& hmdPose = header.trackedDevicePose;
+            if (hmdPose.bPoseIsValid) {
+                const vr::HmdMatrix34_t tHmdCamera = cameraToHeadTransform_;
+                const vr::HmdMatrix34_t tStandingHmd = hmdPose.mDeviceToAbsoluteTracking;
+                const vr::HmdMatrix34_t tStandingCamera = Multiply(tStandingHmd, tHmdCamera);
+
+                // World gravity in SteamVR Standing universe is [0, -1, 0]^T (along -Y).
+                // Project into Camera VR frame via R_{Standing <- Cam}^T * [0, -1, 0]^T:
+                //   g_cam_vr = [-tStandingCamera.m[1][0], -tStandingCamera.m[1][1], -tStandingCamera.m[1][2]]
+                // And convert from OpenVR Camera (+Y up, +Z back) to CV (+Y down, +Z forward):
+                //   g_cam_cv = [g_cam_vr.x, -g_cam_vr.y, -g_cam_vr.z]
+                cameraGravity = {
+                    -tStandingCamera.m[1][0],
+                     tStandingCamera.m[1][1],
+                     tStandingCamera.m[1][2]
+                };
+            }
+
             core::tracking::Pose6D opticalCamPose = core::tracking::PlanarPnpSolver::Disambiguate(
-                pnpResult, imuOrientation);
+                pnpResult, imuOrientation, cameraGravity);
 
             // Compound: T_{Standing <- Phone} = T_{Standing <- HMD} * T_{HMD <- Camera_VR} * M_{VR <- CV} * T_{Camera_CV <- Phone}
             const vr::HmdMatrix34_t tCamCvPhone = Pose6DToHmdMatrix(opticalCamPose);
             const vr::HmdMatrix34_t tCamVrPhone = ApplyM_VR_CV(tCamCvPhone);
 
-            const auto& hmdPose = header.trackedDevicePose;
             if (hmdPose.bPoseIsValid) {
                 const vr::HmdMatrix34_t tHmdCamera = cameraToHeadTransform_;
                 const vr::HmdMatrix34_t tStandingHmd = hmdPose.mDeviceToAbsoluteTracking;

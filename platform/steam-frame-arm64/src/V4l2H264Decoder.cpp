@@ -100,6 +100,9 @@ struct V4l2H264Decoder::Implementation {
         if (!requestedDevice.empty()) {
             candidates.push_back(requestedDevice);
         } else {
+            // Check dedicated hardware decoder nodes first (e.g. Steam Frame Qualcomm Iris /dev/video-dec0)
+            for (int index = 0; index < 8; ++index)
+                candidates.push_back("/dev/video-dec" + std::to_string(index));
             for (int index = 0; index < 64; ++index)
                 candidates.push_back("/dev/video" + std::to_string(index));
         }
