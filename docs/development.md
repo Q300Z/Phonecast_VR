@@ -10,13 +10,79 @@
 
 CMake fetches the OpenVR 2.15.6 source pinned at commit `0924064316de3effbcd1acf1e309182a2deb1c05`.
 
-## Windows x64 receiver
+## Quick Command Reference
+
+### 1. Steam Frame Standalone Headset (Native ARM64)
+
+Build, run tests, and immediately install the receiver and dashboard icons directly on the headset:
+
+```bash
+# Full build, automated tests, and installation into ~/.local/opt/phonecast-vr:
+./scripts/verify-and-build-release.sh --install
+
+# Fast build & test without installing:
+./scripts/verify-and-build-release.sh
+
+# Skip test suite (for fast iterative compilation):
+./scripts/verify-and-build-release.sh --skip-tests --install
+```
+
+### 2. Linux Development Host (x86_64 or ARM64)
+
+```bash
+# Configure debug test build:
+cmake -B out/build/linux-test -DCMAKE_BUILD_TYPE=Debug
+
+# Compile all targets in parallel:
+cmake --build out/build/linux-test -j$(nproc)
+
+# Run full CTest suite (21 test suites in parallel):
+ctest --test-dir out/build/linux-test -j$(nproc) --output-on-failure
+
+# Run a specific targeted test suite (e.g. tracking E2E or protocol):
+ctest --test-dir out/build/linux-test -R phonecast-e2e-tracking-tests --output-on-failure
+ctest --test-dir out/build/linux-test -R phonecast-unit-tests --output-on-failure
+
+# Measure C++ code coverage with gcov:
+cmake -B out/build/linux-coverage -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage" \
+  -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+cmake --build out/build/linux-coverage -j$(nproc)
+ctest --test-dir out/build/linux-coverage -j$(nproc)
+```
+
+### 3. Android Sender App (`android/sender/`)
+
+```bash
+cd android/sender
+
+# Run all JVM unit tests:
+./gradlew testDebugUnitTest
+
+# Run Android static analysis (lint):
+./gradlew lintDebug
+
+# Build debug APK:
+./gradlew assembleDebug
+
+# Install debug APK on connected phone via ADB:
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Monitor capture & network logs in real time:
+adb logcat -s PhoneCastCapture PhoneCastNetwork PhoneCastAudio
+
+# Build signed release APK (requires private signing.properties):
+PHONECAST_SIGNING_PROPERTIES=/path/to/signing.properties ./gradlew assembleRelease
+```
+
+### 4. Windows x64 Receiver (PC SteamVR)
 
 ```powershell
 cmake --preset windows-x64
 cmake --build --preset windows-x64
 ctest --test-dir out/build/windows-x64 --output-on-failure
 ```
+
 
 ### Coding-harness Windows CMake note
 
@@ -234,6 +300,18 @@ This cross-build validates compilation only. Qualcomm/iris V4L2 decoding, visibl
 The receiver now performs bounded decoder-error recovery without disconnecting the phone: it requests a new keyframe, reopens the decoder up to three times, and also triggers after three active one-second receive windows produce no decoded frame. Console diagnostics and performance CSV files expose recovery trigger, success, and failed-attempt counters. Windows tests, an ARM64 cross-build, and emulated portable tests cover the policy; recovery from the previously logged Qualcomm `Device or resource busy` failure is not physically validated yet.
 
 ## Steam Frame standalone launcher
+
+### Native on-headset build and installation
+
+When developing directly on the Steam Frame headset (e.g. in SteamOS Desktop Mode or via SSH), you can compile the native ARM64 release, run the automated test suite in parallel, and install/update the receiver in a single command:
+
+```bash
+./scripts/verify-and-build-release.sh --install
+```
+
+This builds into `out/build/linux-arm64`, verifies CTest passes, and runs `steam-frame-installer/install-phonecast.sh` to update `~/.local/opt/phonecast-vr` and the SteamVR dashboard shortcuts.
+
+### Manual launcher installation
 
 Sprint 12's manual launcher baseline is packaged beside the native receiver in
 `bin/steam-frame-installer`. Copy the complete `bin` payload to Steam Frame,

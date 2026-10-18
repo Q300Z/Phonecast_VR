@@ -159,16 +159,61 @@ Exports are bounded support summaries, not unrestricted system/raw-log dumps. Re
 
 For deeper diagnosis, native raw logs normally live in `~/.local/state/phonecast-vr/receiver.log`, with diagnostics in the adjacent `performance.csv`. Review/redact raw files before sharing. See [v0.9 support details and validation boundaries](docs/v0.9-support.md).
 
-## Windows receiver and development
+## Development & Building from source
 
-The Windows x64 receiver is available from source for PC-hosted SteamVR use. It is secondary to the native headset release. **Never start or restart SteamVR through Windows Remote Desktop**; follow the physical-console guidance in [development instructions](docs/development.md).
+See [`docs/development.md`](docs/development.md) for the complete reference, architecture guides, and platform prerequisites.
 
-Build instructions and tests:
+### Quick Commands
 
-- [Complete development setup](docs/development.md)
-- [Android app](android/sender/README.md)
-- [Steam Frame backend](platform/steam-frame-arm64/README.md)
-- [Architecture](docs/architecture.md) · [Protocol/security](docs/protocol.md) · [Performance evidence](docs/performance.md)
+#### 1. Steam Frame Standalone Headset (Native ARM64)
+Direct compilation, parallel automated testing, and installation on the headset:
+```bash
+# Build Release, run test suite, and install/update ~/.local/opt/phonecast-vr:
+./scripts/verify-and-build-release.sh --install
+
+# Build and run tests only (without installing):
+./scripts/verify-and-build-release.sh
+```
+
+#### 2. Linux Development Host (x86_64 or ARM64)
+```bash
+# Configure & compile debug build:
+cmake -B out/build/linux-test -DCMAKE_BUILD_TYPE=Debug
+cmake --build out/build/linux-test -j$(nproc)
+
+# Run full automated test suite:
+ctest --test-dir out/build/linux-test -j$(nproc) --output-on-failure
+```
+
+#### 3. Android Sender App (`android/sender/`)
+```bash
+cd android/sender
+
+# Run JVM unit tests:
+./gradlew testDebugUnitTest
+
+# Run static analysis (Android Lint):
+./gradlew lintDebug
+
+# Build and install Debug APK on connected device via ADB:
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+#### 4. Windows x64 Receiver (PC SteamVR)
+```powershell
+cmake --preset windows-x64
+cmake --build --preset windows-x64
+ctest --test-dir out/build/windows-x64 --output-on-failure
+```
+> **Warning**: **Never start or restart SteamVR through Windows Remote Desktop (RDP)**. Follow the physical-console guidance in [`docs/development.md`](docs/development.md).
+
+### Documentation & Subsystem Guides
+- [Complete development guide](docs/development.md)
+- [Android app details](android/sender/README.md)
+- [Steam Frame native backend](platform/steam-frame-arm64/README.md)
+- [Architecture](docs/architecture.md) · [Protocol & security](docs/protocol.md) · [Performance evidence](docs/performance.md)
+
 
 ## Contributing
 
