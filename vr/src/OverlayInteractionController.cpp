@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "phonecast/vr/ui/OverlayUiRenderer.h"
+
 namespace phonecast::vr {
 namespace {
 float ClampUnit(float value) noexcept {
@@ -10,6 +12,9 @@ float ClampUnit(float value) noexcept {
 
 bool InNavRow(float overlayY, std::uint32_t bottomInset) noexcept {
     if (bottomInset == 0 || overlayY < 0.0F || overlayY >= static_cast<float>(bottomInset)) return false;
+    if (bottomInset == ui::kGrabHandleHeightPixels) {
+        return overlayY >= static_cast<float>(ui::kGrabBarHeightPixels);
+    }
     // Lower 40% is reserved for grab/resize bar; upper 60% is for navigation buttons.
     return overlayY >= static_cast<float>(bottomInset) * 0.40F;
 }
@@ -29,41 +34,72 @@ bool OverlayInteractionController::IsGrabHandle(float overlayY) const noexcept {
 }
 
 bool OverlayInteractionController::IsBackButton(float overlayX, float overlayY) const noexcept {
-    return InNavRow(overlayY, bottomInset_) && overlayX >= 0.0F &&
-           overlayX < static_cast<float>(bottomInset_);
+    if (!InNavRow(overlayY, bottomInset_)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        constexpr float backRight = static_cast<float>(ui::kNavButtonMargin + ui::kNavButtonWidth) + 3.0F;
+        return overlayX >= 0.0F && overlayX < backRight;
+    }
+    return overlayX >= 0.0F && overlayX < static_cast<float>(bottomInset_);
 }
 
 bool OverlayInteractionController::IsHomeButton(float overlayX, float overlayY) const noexcept {
+    if (!InNavRow(overlayY, bottomInset_)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        constexpr float homeLeft = static_cast<float>(ui::kNavButtonMargin + ui::kNavButtonWidth + ui::kNavButtonGap) - 3.0F;
+        constexpr float homeRight = homeLeft + static_cast<float>(ui::kNavButtonWidth) + 6.0F;
+        return overlayX >= homeLeft && overlayX < homeRight && homeRight <= static_cast<float>(width_);
+    }
     const float left = static_cast<float>(bottomInset_);
     const float right = static_cast<float>(bottomInset_ * 2U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsRecentsButton(float overlayX, float overlayY) const noexcept {
+    if (!InNavRow(overlayY, bottomInset_)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        constexpr float recentsLeft = static_cast<float>(ui::kNavButtonMargin + (ui::kNavButtonWidth + ui::kNavButtonGap) * 2) - 3.0F;
+        constexpr float recentsRight = recentsLeft + static_cast<float>(ui::kNavButtonWidth) + 6.0F;
+        return overlayX >= recentsLeft && overlayX < recentsRight && recentsRight <= static_cast<float>(width_);
+    }
     const float left = static_cast<float>(bottomInset_ * 2U);
     const float right = static_cast<float>(bottomInset_ * 3U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsKeyboardButton(float overlayX, float overlayY) const noexcept {
+    if (!InNavRow(overlayY, bottomInset_)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        constexpr float kbLeft = static_cast<float>(ui::kNavButtonMargin + (ui::kNavButtonWidth + ui::kNavButtonGap) * 3) - 3.0F;
+        constexpr float kbRight = kbLeft + static_cast<float>(ui::kNavButtonWidth) + 6.0F;
+        return overlayX >= kbLeft && overlayX < kbRight && kbRight <= static_cast<float>(width_);
+    }
     const float left = static_cast<float>(bottomInset_ * 3U);
     const float right = static_cast<float>(bottomInset_ * 4U);
     const float maxSafe = static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U);
-    return InNavRow(overlayY, bottomInset_) && overlayX >= left && overlayX < right && right <= maxSafe;
+    return overlayX >= left && overlayX < right && right <= maxSafe;
 }
 
 bool OverlayInteractionController::IsCloseButton(float overlayX, float overlayY) const noexcept {
-    return InNavRow(overlayY, bottomInset_) && overlayX >=
-           static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U) &&
+    if (!InNavRow(overlayY, bottomInset_)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        const float closeLeft = static_cast<float>(width_ > 56U ? width_ - 56U : 0U);
+        return overlayX >= closeLeft && overlayX <= static_cast<float>(width_);
+    }
+    return overlayX >= static_cast<float>(width_ > bottomInset_ * 2U ? width_ - bottomInset_ * 2U : 0U) &&
            overlayX < static_cast<float>(width_ > bottomInset_ ? width_ - bottomInset_ : 0U);
 }
 
 bool OverlayInteractionController::IsResizeButton(float overlayX, float overlayY) const noexcept {
-    return IsGrabHandle(overlayY) && overlayX >=
-        static_cast<float>(width_ > bottomInset_ ? width_ - bottomInset_ : 0U) &&
-        overlayX < static_cast<float>(width_);
+    if (!IsGrabHandle(overlayY)) return false;
+    if (bottomInset_ == ui::kGrabHandleHeightPixels) {
+        const bool inBottomRow = overlayY < static_cast<float>(ui::kGrabBarHeightPixels);
+        const float resizeLeft = static_cast<float>(width_ > 44U ? width_ - 44U : 0U);
+        return inBottomRow && overlayX >= resizeLeft && overlayX <= static_cast<float>(width_);
+    }
+    return overlayX >= static_cast<float>(width_ > bottomInset_ ? width_ - bottomInset_ : 0U) &&
+           overlayX < static_cast<float>(width_);
 }
 
 core::PointerEvent OverlayInteractionController::Make(core::PointerEvent::Type type,

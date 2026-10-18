@@ -430,6 +430,9 @@ SettingsMenuResult SettingsMenuController::Handle(SettingsMenuCommand command) {
 
 SettingsMenuResult SettingsMenuController::Handle(const SettingsMenuInput& input) {
     if (!open_) return SettingsMenuResult::None;
+    if (input.hasTargetIndex && input.targetIndex < ItemCount()) {
+        selected_ = input.targetIndex;
+    }
     switch (input.command) {
         case SettingsMenuCommand::PreviousItem:
             exportConfirmation_ = false;
@@ -439,6 +442,10 @@ SettingsMenuResult SettingsMenuController::Handle(const SettingsMenuInput& input
         case SettingsMenuCommand::NextItem:
             exportConfirmation_ = false;
             selected_ = (selected_ + 1) % ItemCount();
+            resetConfirmation_ = false;
+            return SettingsMenuResult::None;
+        case SettingsMenuCommand::SelectItem:
+            exportConfirmation_ = false;
             resetConfirmation_ = false;
             return SettingsMenuResult::None;
         case SettingsMenuCommand::Decrease:

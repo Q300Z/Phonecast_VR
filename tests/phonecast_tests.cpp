@@ -435,6 +435,30 @@ void TestOverlayInteraction() {
           "narrow surface safely disables Home button without out-of-bounds click");
     Check(!narrowInteraction.IsRecentsButton(85.0F, 20.0F),
           "narrow surface safely disables Recents button without out-of-bounds click");
+
+    // Pixel-perfect runtime layout verification (bottomInset = 88)
+    phonecast::vr::OverlayInteractionController runtimeInteraction;
+    runtimeInteraction.SetSurfaceSize(1000, 2000, 88);
+    Check(runtimeInteraction.IsBackButton(30.0F, 60.0F) &&
+          !runtimeInteraction.IsHomeButton(30.0F, 60.0F),
+          "runtime Back button hit test aligns with rendered icon at x=30");
+    Check(runtimeInteraction.IsHomeButton(80.0F, 60.0F) &&
+          !runtimeInteraction.IsBackButton(80.0F, 60.0F) &&
+          !runtimeInteraction.IsRecentsButton(80.0F, 60.0F),
+          "runtime Home button hit test aligns with rendered icon at x=80 without leftward drift");
+    Check(runtimeInteraction.IsRecentsButton(130.0F, 60.0F) &&
+          !runtimeInteraction.IsHomeButton(130.0F, 60.0F) &&
+          !runtimeInteraction.IsKeyboardButton(130.0F, 60.0F),
+          "runtime Recents button hit test aligns with rendered icon at x=130 without leftward drift");
+    Check(runtimeInteraction.IsKeyboardButton(180.0F, 60.0F) &&
+          !runtimeInteraction.IsRecentsButton(180.0F, 60.0F),
+          "runtime Keyboard button hit test aligns with rendered icon at x=180 without leftward drift");
+    Check(runtimeInteraction.IsCloseButton(970.0F, 60.0F) &&
+          !runtimeInteraction.IsResizeButton(970.0F, 60.0F),
+          "runtime Close button hit test aligns with rendered icon at right edge");
+    Check(runtimeInteraction.IsResizeButton(980.0F, 20.0F) &&
+          !runtimeInteraction.IsCloseButton(980.0F, 20.0F),
+          "runtime Resize button hit test aligns with lower-right handle corner");
 }
 
 void TestOverlayControls() {
@@ -804,6 +828,19 @@ void TestSettingsMenu() {
     Check(modeMenu.Draft().placementMode == phonecast::vr::PlacementMode::PhoneTracked,
           "backward wrap reaches PhoneTracked");
     Check(modeMenu.View().values[0] == "PHONE TRACKED", "displays PHONE TRACKED on backward wrap");
+
+    // Direct laser selection with targetIndex
+    phonecast::vr::SettingsMenuController directMenu;
+    directMenu.Open(initial);
+    directMenu.Handle(phonecast::vr::SettingsMenuInput{
+        phonecast::vr::SettingsMenuCommand::Activate, 0.0F, 1, true});
+    Check(directMenu.View().title == "PLACEMENT", "direct laser selection jumps directly to Placement");
+    directMenu.Handle(phonecast::vr::SettingsMenuInput{
+        phonecast::vr::SettingsMenuCommand::Back, 0.0F, 0, false});
+    Check(directMenu.View().title == "PHONECAST SETTINGS", "header Back returns to root");
+    directMenu.Handle(phonecast::vr::SettingsMenuInput{
+        phonecast::vr::SettingsMenuCommand::Activate, 0.0F, 8, true}); // Cancel
+    Check(!directMenu.IsOpen(), "direct laser click on Cancel closes menu");
 }
 
 void TestWristMenuGesture() {

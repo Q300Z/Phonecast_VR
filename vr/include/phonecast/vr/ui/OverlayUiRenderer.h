@@ -31,6 +31,13 @@ constexpr std::uint32_t kNavBarHeightPixels = 48;
 constexpr std::uint32_t kGrabBarHeightPixels = 40;
 constexpr std::uint32_t kGrabHandleHeightPixels = kNavBarHeightPixels + kGrabBarHeightPixels;
 
+// Navigation buttons geometry shared between rendering and laser hit-testing
+constexpr int kNavButtonWidth = 44;
+constexpr int kNavButtonHeight = 36;
+constexpr int kNavButtonGap = 6;
+constexpr int kNavButtonMargin = 8;
+constexpr int kResizeButtonSize = 30;
+
 enum class DashboardControl {
     ToggleVisible,
     HeadLocked,

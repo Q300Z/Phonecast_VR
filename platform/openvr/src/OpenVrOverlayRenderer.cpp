@@ -1142,21 +1142,21 @@ public:
         const int x = static_cast<int>(mouseX);
         const int y = static_cast<int>(kSettingsTextureHeight - mouseY);
         if (settingsMenuView.title == "PHONECAST SETTINGS") {
-            constexpr int firstCenter = 150;
-            constexpr int rowStep = 78;
+            constexpr int firstCenter = 152;
+            constexpr int rowStep = 76;
             for (int row = 0; row < 7; ++row) {
                 const int center = firstCenter + row * rowStep;
                 if (y >= center - 32 && y < center + 32 && x >= 16 && x < 496)
                     return row;
             }
-            if (y >= 666 && y < 712 && x >= 16 && x < 496) return 10;
+            if (y >= 666 && y < 716 && x >= 16 && x < 496) return 10;
             constexpr std::array<int, 3> actionLeft{16, 174, 332};
             constexpr std::array<int, 3> actionWidth{142, 142, 164};
             for (int action = 0; action < 3; ++action) {
                 if (x >= actionLeft[static_cast<std::size_t>(action)] &&
                     x < actionLeft[static_cast<std::size_t>(action)] +
                         actionWidth[static_cast<std::size_t>(action)] &&
-                    y >= 730 && y < 808)
+                    y >= 730 && y < 814)
                     return action + 7;
             }
             return -1;
@@ -1187,23 +1187,19 @@ public:
         // Header navigation (Back button on the left, Close button on the right)
         if (y >= 16 && y <= 86) {
             if (mouseX <= 72.0F && settingsMenuView.title != "PHONECAST SETTINGS") {
-                settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F};
+                pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F, 0, false};
+                hasPendingSettingsMenuCommand = true;
                 return;
             }
             if (mouseX >= static_cast<float>(kSettingsTextureWidth) - 72.0F) {
-                if (settingsMenuView.title == "PHONECAST SETTINGS") {
-                    overlayApi->HideOverlay(settingsOverlay);
-                    settingsMenuVisible = false;
-                } else {
-                    settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F};
-                }
+                pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::Back, 0.0F, 0, false};
+                hasPendingSettingsMenuCommand = true;
                 return;
             }
         }
 
         const int row = SettingsRow(mouseX, mouseY);
         if (row < 0) return;
-        settingsLaserTargetRow = row;
         const auto index = static_cast<std::size_t>(row);
         const bool adjustable = settingsMenuView.title != "PHONECAST SETTINGS" &&
                                 settingsMenuView.title != "ABOUT PHONECAST" &&
@@ -1213,15 +1209,16 @@ public:
         const bool slider = index < settingsMenuView.normalizedValues.size() &&
                             settingsMenuView.normalizedValues[index] >= 0.0F;
         if (adjustable && mouseX < 72.0F) {
-            settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Decrease, 0.0F};
+            pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::Decrease, 0.0F, index, true};
         } else if (adjustable && mouseX > static_cast<float>(kSettingsTextureWidth) - 72.0F) {
-            settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Increase, 0.0F};
+            pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::Increase, 0.0F, index, true};
         } else if (slider && mouseX >= 88.0F && mouseX <= 424.0F) {
-            settingsLaserInput = {phonecast::vr::SettingsMenuCommand::SetNormalized,
-                                  Clamp((mouseX - 88.0F) / 336.0F, 0.0F, 1.0F)};
+            pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::SetNormalized,
+                                  Clamp((mouseX - 88.0F) / 336.0F, 0.0F, 1.0F), index, true};
         } else {
-            settingsLaserInput = {phonecast::vr::SettingsMenuCommand::Activate, 0.0F};
+            pendingSettingsMenuInput = {phonecast::vr::SettingsMenuCommand::Activate, 0.0F, index, true};
         }
+        hasPendingSettingsMenuCommand = true;
     }
 
     bool CaptureSettingsTransform() {
@@ -1811,6 +1808,10 @@ public:
     phonecast::vr::SettingsMenuInput pendingSettingsMenuInput{
         phonecast::vr::SettingsMenuCommand::Back, 0.0F};
     bool hasPendingSettingsMenuCommand{false};
+    bool settingsPointerDown{false};
+    bool settingsDraggingSlider{false};
+    std::size_t settingsActiveSliderRow{0};
+    int lastHoveredSettingsRow{-1};
     vr::HmdMatrix34_t settingsWorldTransform{};
     bool settingsWorldTransformValid{false};
     vr::TrackedDeviceIndex_t settingsGrabbedDevice{vr::k_unTrackedDeviceIndexInvalid};
@@ -2252,24 +2253,61 @@ bool OpenVrOverlayRenderer::PumpEvents() {
                impl_->settingsOverlay, &event, sizeof(event))) {
         if (event.eventType == vr::VREvent_FocusLeave || event.eventType == vr::VREvent_OverlayHidden) {
             impl_->EndSettingsGrab(impl_->settingsGrabbedDevice);
+            impl_->settingsPointerDown = false;
+            impl_->settingsDraggingSlider = false;
+            impl_->lastHoveredSettingsRow = -1;
         } else if (event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            impl_->settingsPointerDown = true;
             impl_->TriggerHaptic(impl_->settingsOverlay, 0.025F, 70.0F, 0.5F, event.trackedDeviceIndex);
-            if (impl_->IsSettingsResizeHandle(event.data.mouse.x, event.data.mouse.y))
+            if (impl_->IsSettingsResizeHandle(event.data.mouse.x, event.data.mouse.y)) {
                 impl_->BeginSettingsResize(event.data.mouse.x);
-            else if (impl_->IsSettingsGrabHandle(event.data.mouse.y))
+            } else if (impl_->IsSettingsGrabHandle(event.data.mouse.y)) {
                 impl_->BeginSettingsGrab(event.trackedDeviceIndex);
-            else
+            } else {
                 impl_->QueueSettingsLaserClick(event.data.mouse.x, event.data.mouse.y);
+                const int row = impl_->SettingsRow(event.data.mouse.x, event.data.mouse.y);
+                if (row >= 0) {
+                    const auto index = static_cast<std::size_t>(row);
+                    if (index < impl_->settingsMenuView.normalizedValues.size() &&
+                        impl_->settingsMenuView.normalizedValues[index] >= 0.0F &&
+                        event.data.mouse.x >= 88.0F && event.data.mouse.x <= 424.0F) {
+                        impl_->settingsDraggingSlider = true;
+                        impl_->settingsActiveSliderRow = index;
+                    }
+                }
+            }
         } else if (event.eventType == vr::VREvent_MouseButtonUp &&
                    (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
+            impl_->settingsPointerDown = false;
+            impl_->settingsDraggingSlider = false;
             if (impl_->settingsResizing)
                 impl_->EndSettingsResize();
             if (impl_->settingsGrabbedDevice != vr::k_unTrackedDeviceIndexInvalid)
                 impl_->EndSettingsGrab(event.trackedDeviceIndex);
         } else if (event.eventType == vr::VREvent_MouseMove) {
-            if (impl_->settingsResizing)
+            if (impl_->settingsResizing) {
                 impl_->UpdateSettingsResize(event.data.mouse.x);
+            } else if (impl_->settingsDraggingSlider && impl_->settingsPointerDown) {
+                constexpr float trackLeft = 88.0F;
+                constexpr float trackWidth = 336.0F;
+                const float norm = Clamp((event.data.mouse.x - trackLeft) / trackWidth, 0.0F, 1.0F);
+                impl_->pendingSettingsMenuInput = {
+                    phonecast::vr::SettingsMenuCommand::SetNormalized,
+                    norm,
+                    impl_->settingsActiveSliderRow,
+                    true
+                };
+                impl_->hasPendingSettingsMenuCommand = true;
+            } else if (!impl_->settingsPointerDown) {
+                const int hoveredRow = impl_->SettingsRow(event.data.mouse.x, event.data.mouse.y);
+                if (hoveredRow != impl_->lastHoveredSettingsRow) {
+                    impl_->lastHoveredSettingsRow = hoveredRow;
+                    if (hoveredRow >= 0) {
+                        impl_->TriggerHaptic(impl_->settingsOverlay, 0.012F, 50.0F, 0.20F, event.trackedDeviceIndex);
+                    }
+                }
+            }
         } else if (event.eventType == vr::VREvent_ScrollSmooth ||
                    event.eventType == vr::VREvent_ScrollDiscrete) {
             impl_->QueueDragScroll(event, true);
@@ -2515,7 +2553,9 @@ bool OpenVrOverlayRenderer::HideSettingsMenu(std::string& error) {
     impl_->UpdateStartLocationPreview(false);
     impl_->settingsAxisLatched = false;
     impl_->hasPendingSettingsMenuCommand = false;
-    impl_->settingsLaserTargetRow = -1;
+    impl_->settingsPointerDown = false;
+    impl_->settingsDraggingSlider = false;
+    impl_->lastHoveredSettingsRow = -1;
     impl_->logger.Log(core::LogLevel::Info, "openvr-settings", "In-headset settings menu hidden.");
     error.clear();
     return true;
@@ -2528,22 +2568,7 @@ bool OpenVrOverlayRenderer::TakeSettingsMenuInput(
         impl_->hasPendingSettingsMenuCommand = false;
         return true;
     }
-    if (impl_->settingsLaserTargetRow < 0) return false;
-    if (impl_->settingsMenuView.selectedIndex !=
-        static_cast<std::size_t>(impl_->settingsLaserTargetRow)) {
-        const auto count = impl_->settingsMenuView.labels.size();
-        const auto current = impl_->settingsMenuView.selectedIndex;
-        const auto target = static_cast<std::size_t>(impl_->settingsLaserTargetRow);
-        const auto forward = (target + count - current) % count;
-        const auto backward = (current + count - target) % count;
-        input = {forward <= backward
-            ? phonecast::vr::SettingsMenuCommand::NextItem
-            : phonecast::vr::SettingsMenuCommand::PreviousItem, 0.0F};
-        return true;
-    }
-    input = impl_->settingsLaserInput;
-    impl_->settingsLaserTargetRow = -1;
-    return true;
+    return false;
 }
 
 void OpenVrOverlayRenderer::SetRemoteControlStatus(bool known, bool appEnabled,

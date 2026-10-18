@@ -59,12 +59,15 @@ enum class SettingsMenuCommand {
     Increase,
     SetNormalized,
     Activate,
-    Back
+    Back,
+    SelectItem
 };
 
 struct SettingsMenuInput {
     SettingsMenuCommand command{SettingsMenuCommand::Activate};
     float normalizedValue{0.0F};
+    std::size_t targetIndex{0};
+    bool hasTargetIndex{false};
 };
 
 struct SettingsMenuView {
