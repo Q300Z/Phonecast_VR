@@ -5,6 +5,8 @@ add_library(phonecast-vr
     src/OverlaySettingsStore.cpp
     src/SettingsMenuController.cpp
     src/WristMenuGesture.cpp
+    src/ui/UiCanvas.cpp
+    src/ui/OverlayUiRenderer.cpp
 )
 target_include_directories(phonecast-vr PUBLIC include)
 target_link_libraries(phonecast-vr PUBLIC phonecast-core)
