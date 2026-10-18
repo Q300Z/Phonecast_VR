@@ -62,13 +62,14 @@ void HandleSignal(int) { signalRequested.store(true); }
 #endif
 
 void PrintUsage() {
-    std::cout << "Usage: phonecast-vr-stream-receiver [--pair-code NNNNNN] [--pair-code-file PATH] [--port N] [--settings PATH] [--performance-log PATH] [--video-device PATH] [--focus-dashboard] [--diagnostic-visible]\n\n"
+    std::cout << "Usage: phonecast-vr-stream-receiver [--pair-code NNNNNN] [--pair-code-file PATH] [--port N] [--settings PATH] [--performance-log PATH] [--video-device PATH] [--camera-device PATH] [--focus-dashboard] [--diagnostic-visible]\n\n"
               << "Native Steam Frame launches create and persist a pairing code when none is supplied.\n"
               << "  --focus-dashboard      Open the PhoneCast dashboard after launch\n"
               << "  --pair-code-file PATH  Linux: override the persistent credential path\n\n"
               << "Performance measurement:\n"
               << "  --performance-log PATH  Write one-second receiver/process/VR samples as CSV\n"
               << "  --video-device PATH     Linux: select a stateful V4L2 H.264 decoder\n"
+              << "  --camera-device PATH    Linux: select V4L2 camera device for headset optical phone tracking\n"
               << "  --audio-device ID       Select WASAPI endpoint/Pulse sink (default: VR hint/system sink)\n"
               << "                          Use 'default' to force the system default. Android opt-in is required.\n\n"
               << "Global controls (hold Ctrl+Alt):\n"
@@ -216,6 +217,7 @@ int main(int argc, char** argv) {
     std::filesystem::path performanceLogPath;
     std::filesystem::path pairCodePath;
     std::string videoDevice;
+    std::string cameraDevice;
     std::string audioDevice;
     for (int index = 1; index < argc; ++index) {
         const std::string option = argv[index];
@@ -241,6 +243,14 @@ int main(int argc, char** argv) {
         else if (option == "--settings") settingsPath = value;
         else if (option == "--performance-log") performanceLogPath = value;
         else if (option == "--video-device") videoDevice = value;
+        else if (option == "--camera-device") {
+            cameraDevice = value;
+#ifdef _WIN32
+            _putenv_s("PHONECAST_CAMERA_DEVICE", value.c_str());
+#else
+            ::setenv("PHONECAST_CAMERA_DEVICE", value.c_str(), 1);
+#endif
+        }
         else if (option == "--audio-device") audioDevice = value;
         else if (option == "--port") {
             try {
@@ -263,6 +273,10 @@ int main(int argc, char** argv) {
     }
     if (!videoDevice.empty()) {
         std::cerr << "--video-device is available only on the native Linux receiver.\n";
+        return EXIT_FAILURE;
+    }
+    if (!cameraDevice.empty()) {
+        std::cerr << "--camera-device is available only on the native Linux receiver.\n";
         return EXIT_FAILURE;
     }
     if (!phonecast::core::protocol::IsValidPairCode(pairCode)) {

@@ -59,6 +59,78 @@ void ConvertYUYVToRGBA(const uint8_t* yuyv, uint8_t* rgba, uint32_t width, uint3
     }
 }
 
+void ConvertUYVYToRGBA(const uint8_t* uyvy, uint8_t* rgba, uint32_t width, uint32_t height) {
+    const size_t totalPixels = static_cast<size_t>(width) * height;
+    const size_t pairs = totalPixels / 2;
+
+    const auto clampByte = [](int value) noexcept -> uint8_t {
+        return static_cast<uint8_t>(std::max(0, std::min(255, value)));
+    };
+
+    for (size_t i = 0; i < pairs; ++i) {
+        const int u  = uyvy[i * 4 + 0] - 128;
+        const int y0 = uyvy[i * 4 + 1];
+        const int v  = uyvy[i * 4 + 2] - 128;
+        const int y1 = uyvy[i * 4 + 3];
+
+        const int r0 = y0 + ((359 * v) >> 8);
+        const int g0 = y0 - ((88 * u + 183 * v) >> 8);
+        const int b0 = y0 + ((454 * u) >> 8);
+
+        rgba[i * 8 + 0] = clampByte(r0);
+        rgba[i * 8 + 1] = clampByte(g0);
+        rgba[i * 8 + 2] = clampByte(b0);
+        rgba[i * 8 + 3] = 255;
+
+        const int r1 = y1 + ((359 * v) >> 8);
+        const int g1 = y1 - ((88 * u + 183 * v) >> 8);
+        const int b1 = y1 + ((454 * u) >> 8);
+
+        rgba[i * 8 + 4] = clampByte(r1);
+        rgba[i * 8 + 5] = clampByte(g1);
+        rgba[i * 8 + 6] = clampByte(b1);
+        rgba[i * 8 + 7] = 255;
+    }
+}
+
+void ConvertNV12ToRGBA(const uint8_t* nv12, uint8_t* rgba, uint32_t width, uint32_t height) {
+    const uint8_t* yPlane = nv12;
+    const uint8_t* uvPlane = nv12 + (static_cast<size_t>(width) * height);
+    const auto clampByte = [](int value) noexcept -> uint8_t {
+        return static_cast<uint8_t>(std::max(0, std::min(255, value)));
+    };
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint32_t uvRow = (y / 2) * width;
+        for (uint32_t x = 0; x < width; ++x) {
+            const int yVal = yPlane[y * width + x];
+            const uint32_t uvIndex = uvRow + (x & ~1U);
+            const int uVal = uvPlane[uvIndex] - 128;
+            const int vVal = uvPlane[uvIndex + 1] - 128;
+
+            const int r = yVal + ((359 * vVal) >> 8);
+            const int g = yVal - ((88 * uVal + 183 * vVal) >> 8);
+            const int b = yVal + ((454 * uVal) >> 8);
+
+            const size_t outIdx = (static_cast<size_t>(y) * width + x) * 4U;
+            rgba[outIdx + 0] = clampByte(r);
+            rgba[outIdx + 1] = clampByte(g);
+            rgba[outIdx + 2] = clampByte(b);
+            rgba[outIdx + 3] = 255;
+        }
+    }
+}
+
+void ConvertGreyToRGBA(const uint8_t* grey, uint8_t* rgba, uint32_t width, uint32_t height) {
+    const size_t totalPixels = static_cast<size_t>(width) * height;
+    for (size_t i = 0; i < totalPixels; ++i) {
+        const uint8_t y = grey[i];
+        rgba[i * 4 + 0] = y;
+        rgba[i * 4 + 1] = y;
+        rgba[i * 4 + 2] = y;
+        rgba[i * 4 + 3] = 255;
+    }
+}
+
 void ConvertRGB24ToRGBA(const uint8_t* rgb, uint8_t* rgba, uint32_t width, uint32_t height) {
     const size_t totalPixels = static_cast<size_t>(width) * height;
     for (size_t i = 0; i < totalPixels; ++i) {
@@ -165,26 +237,44 @@ public:
             return false;
         }
 
-        // Try negotiated formats: YUYV first, fallback RGB24
+        // Try negotiated formats in order: YUYV, NV12, UYVY, GREY, RGB24
         v4l2_format fmt{};
         fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         fmt.fmt.pix.width = 640;
         fmt.fmt.pix.height = 480;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
         fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-        if (::ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
-            fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
-            if (::ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
-                logger.Log(core::LogLevel::Warning, "v4l2-camera", "VIDIOC_S_FMT failed.");
+        const uint32_t candidateFormats[] = {
+            V4L2_PIX_FMT_YUYV,
+            V4L2_PIX_FMT_NV12,
+            V4L2_PIX_FMT_UYVY,
+            V4L2_PIX_FMT_GREY,
+            V4L2_PIX_FMT_RGB24
+        };
+
+        bool formatAccepted = false;
+        for (uint32_t tryFmt : candidateFormats) {
+            fmt.fmt.pix.pixelformat = tryFmt;
+            if (::ioctl(fd, VIDIOC_S_FMT, &fmt) == 0) {
+                formatAccepted = true;
+                break;
+            }
+        }
+
+        if (!formatAccepted) {
+            // Keep native camera format if explicit S_FMT attempts were rejected
+            if (::ioctl(fd, VIDIOC_G_FMT, &fmt) == 0) {
+                formatAccepted = true;
+            } else {
+                logger.Log(core::LogLevel::Warning, "v4l2-camera", "VIDIOC_S_FMT failed on " + devicePath);
                 ::close(fd);
                 fd = -1;
                 return false;
             }
         }
 
-        width = fmt.fmt.pix.width;
-        height = fmt.fmt.pix.height;
+        width = fmt.fmt.pix.width > 0 ? fmt.fmt.pix.width : 640;
+        height = fmt.fmt.pix.height > 0 ? fmt.fmt.pix.height : 480;
         pixelFormat = fmt.fmt.pix.pixelformat;
 
         v4l2_requestbuffers req{};
@@ -263,6 +353,9 @@ public:
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = V4L2_MEMORY_MMAP;
         if (::ioctl(fd, VIDIOC_DQBUF, &buf) < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return ::vr::VRTrackedCameraError_NoFrameAvailable;
+            }
             return ::vr::VRTrackedCameraError_OperationFailed;
         }
 
@@ -274,6 +367,12 @@ public:
             if (bufferSize >= requiredSize) {
                 if (pixelFormat == V4L2_PIX_FMT_YUYV) {
                     ConvertYUYVToRGBA(src, dst, width, height);
+                } else if (pixelFormat == V4L2_PIX_FMT_UYVY) {
+                    ConvertUYVYToRGBA(src, dst, width, height);
+                } else if (pixelFormat == V4L2_PIX_FMT_NV12) {
+                    ConvertNV12ToRGBA(src, dst, width, height);
+                } else if (pixelFormat == V4L2_PIX_FMT_GREY) {
+                    ConvertGreyToRGBA(src, dst, width, height);
                 } else if (pixelFormat == V4L2_PIX_FMT_RGB24) {
                     ConvertRGB24ToRGBA(src, dst, width, height);
                 } else {
@@ -296,13 +395,21 @@ public:
         header.trackedDevicePose.bPoseIsValid = false;
         header.trackedDevicePose.bDeviceIsConnected = true;
         header.trackedDevicePose.mDeviceToAbsoluteTracking = ::vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
-                                                                                 {0.0F, 1.0F, 0.0F, 0.0F},
-                                                                                 {0.0F, 0.0F, 1.0F, 0.0F}}};
+                                                                                  {0.0F, 1.0F, 0.0F, 0.0F},
+                                                                                  {0.0F, 0.0F, 1.0F, 0.0F}}};
         if (system != nullptr) {
             ::vr::TrackedDevicePose_t poses[::vr::k_unMaxTrackedDeviceCount]{};
             system->GetDeviceToAbsoluteTrackingPose(::vr::TrackingUniverseStanding, 0.0F, poses, ::vr::k_unMaxTrackedDeviceCount);
             if (poses[::vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid) {
                 header.trackedDevicePose = poses[::vr::k_unTrackedDeviceIndex_Hmd];
+            } else {
+                system->GetDeviceToAbsoluteTrackingPose(::vr::TrackingUniverseSeated, 0.0F, poses, ::vr::k_unMaxTrackedDeviceCount);
+                if (poses[::vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid) {
+                    header.trackedDevicePose = poses[::vr::k_unTrackedDeviceIndex_Hmd];
+                } else if (poses[::vr::k_unTrackedDeviceIndex_Hmd].bDeviceIsConnected) {
+                    header.trackedDevicePose = poses[::vr::k_unTrackedDeviceIndex_Hmd];
+                    header.trackedDevicePose.bPoseIsValid = true;
+                }
             }
         }
 
@@ -311,37 +418,95 @@ public:
 };
 
 std::string SteamFrameV4L2CameraSource::FindSteamFrameCameraDevice() {
-    std::error_code ec;
-    auto iter = std::filesystem::directory_iterator("/sys/class/video4linux", ec);
-    if (ec) return {};
-    const auto end = std::filesystem::directory_iterator();
-
-    for (; iter != end; iter.increment(ec)) {
-        if (ec) return {};
-        std::ifstream nameFile(iter->path() / "name");
-        std::string sensorName;
-        std::getline(nameFile, sensorName);
-        if (sensorName.rfind("arcimx616 ", 0) != 0 && sensorName.rfind("imx616", 0) != 0) {
-            continue;
-        }
-
-        const auto devPath = std::filesystem::path("/dev") / iter->path().filename();
-        const int testFd = ::open(devPath.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
-        if (testFd < 0) continue;
-
-        // Custom hardware ioctl used on Steam Frame camera kernel driver to check sensor connectivity
-        uint32_t sensorConnected = 0;
-        const int ioctlRes = ::ioctl(testFd, 0x800456c1UL, &sensorConnected);
-        ::close(testFd);
-
-        if (ioctlRes == 0) {
-            if (sensorConnected == 1) return devPath.string();
-        } else {
-            // Driver node exists even if ioctl is unsupported in older firmware
-            return devPath.string();
+    // 1. Check explicit environment variable override
+    const char* envPath = std::getenv("PHONECAST_CAMERA_DEVICE");
+    if (envPath != nullptr && envPath[0] != '\0') {
+        const int testFd = ::open(envPath, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+        if (testFd >= 0) {
+            ::close(testFd);
+            return std::string(envPath);
         }
     }
-    return {};
+
+    std::string preferredDevice;
+    std::string fallbackDevice;
+
+    const auto inspectDevice = [&](const std::string& devPath, const std::string& name) {
+        const int testFd = ::open(devPath.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+        if (testFd < 0) return;
+
+        v4l2_capability cap{};
+        if (::ioctl(testFd, VIDIOC_QUERYCAP, &cap) < 0) {
+            ::close(testFd);
+            return;
+        }
+
+        if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) || !(cap.capabilities & V4L2_CAP_STREAMING)) {
+            ::close(testFd);
+            return;
+        }
+
+#ifdef V4L2_CAP_VIDEO_M2M
+        if (cap.capabilities & V4L2_CAP_VIDEO_M2M) {
+            ::close(testFd);
+            return;
+        }
+#endif
+#ifdef V4L2_CAP_VIDEO_M2M_MPLANE
+        if (cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE) {
+            ::close(testFd);
+            return;
+        }
+#endif
+
+        ::close(testFd);
+
+        std::string lowerName = name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+
+        const bool isPreferred = lowerName.find("imx") != std::string::npos ||
+                                lowerName.find("arcimx") != std::string::npos ||
+                                lowerName.find("frame") != std::string::npos ||
+                                lowerName.find("steam") != std::string::npos ||
+                                lowerName.find("camera") != std::string::npos ||
+                                lowerName.find("camss") != std::string::npos ||
+                                lowerName.find("csi") != std::string::npos ||
+                                lowerName.find("front") != std::string::npos ||
+                                lowerName.find("vfe") != std::string::npos;
+
+        if (isPreferred && preferredDevice.empty()) {
+            preferredDevice = devPath;
+        } else if (fallbackDevice.empty()) {
+            fallbackDevice = devPath;
+        }
+    };
+
+    std::error_code ec;
+    auto iter = std::filesystem::directory_iterator("/sys/class/video4linux", ec);
+    if (!ec) {
+        const auto end = std::filesystem::directory_iterator();
+        for (; iter != end; iter.increment(ec)) {
+            if (ec) break;
+            std::ifstream nameFile(iter->path() / "name");
+            std::string sensorName;
+            std::getline(nameFile, sensorName);
+            const auto devPath = (std::filesystem::path("/dev") / iter->path().filename()).string();
+            inspectDevice(devPath, sensorName);
+            if (!preferredDevice.empty()) break;
+        }
+    }
+
+    if (preferredDevice.empty()) {
+        for (int i = 0; i < 16; ++i) {
+            const std::string devPath = "/dev/video" + std::to_string(i);
+            inspectDevice(devPath, "");
+            if (!preferredDevice.empty()) break;
+        }
+    }
+
+    if (!preferredDevice.empty()) return preferredDevice;
+    return fallbackDevice;
 }
 
 #else

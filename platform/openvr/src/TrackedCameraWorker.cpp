@@ -220,6 +220,13 @@ public:
 
     bool AcquireStreaming() override {
         if (activeSource_) return true;
+#if defined(__linux__)
+        if (std::getenv("PHONECAST_CAMERA_DEVICE") != nullptr && v4l2Source_ && v4l2Source_->AcquireStreaming()) {
+            activeSource_ = v4l2Source_.get();
+            logger_.Log(core::LogLevel::Info, "camera-worker", "Acquired camera streaming via explicit Linux V4L2 device.");
+            return true;
+        }
+#endif
         if (openvrSource_ && openvrSource_->AcquireStreaming()) {
             activeSource_ = openvrSource_.get();
             logger_.Log(core::LogLevel::Info, "camera-worker", "Acquired camera streaming via OpenVR IVRTrackedCamera.");
@@ -402,6 +409,22 @@ bool TrackedCameraWorker::DetectScreenCorners(
     }
 
     if (!seedFound) {
+        // Dynamic luma threshold calculation:
+        // In real rooms, ambient light can easily exceed 60 across the FOV.
+        // We find the peak luma in the image and set a relative threshold clamped between [60, 200].
+        uint8_t maxLuma = 0;
+        for (uint32_t y = 16; y < frame.height - 16; y += 16) {
+            for (uint32_t x = 16; x < frame.width - 16; x += 16) {
+                const uint8_t lum = frame.GetLuma(x, y);
+                if (lum > maxLuma) maxLuma = lum;
+            }
+        }
+
+        const uint8_t lumaThreshold = std::clamp(
+            static_cast<uint8_t>(maxLuma * 0.75F),
+            static_cast<uint8_t>(60),
+            static_cast<uint8_t>(200));
+
         // Fast coarse grid scan (step 16) to find phone display bounding region
         float minX = static_cast<float>(frame.width);
         float maxX = 0.0F;
@@ -411,7 +434,7 @@ bool TrackedCameraWorker::DetectScreenCorners(
 
         for (uint32_t y = 16; y < frame.height - 16; y += 16) {
             for (uint32_t x = 16; x < frame.width - 16; x += 16) {
-                if (frame.GetLuma(x, y) > 60) {
+                if (frame.GetLuma(x, y) >= lumaThreshold) {
                     const float fx = static_cast<float>(x);
                     const float fy = static_cast<float>(y);
                     minX = std::min(minX, fx);
@@ -423,7 +446,13 @@ bool TrackedCameraWorker::DetectScreenCorners(
             }
         }
 
-        if (brightCount >= 6 && maxX > minX + 20.0F && maxY > minY + 20.0F) {
+        const float boxW = maxX - minX;
+        const float boxH = maxY - minY;
+        const float frameW = static_cast<float>(frame.width);
+        const float frameH = static_cast<float>(frame.height);
+
+        // Check for plausible phone bounding box dimensions (not taking up the whole image or a tiny speck)
+        if (brightCount >= 6 && boxW >= 30.0F && boxH >= 30.0F && boxW < frameW * 0.90F && boxH < frameH * 0.90F) {
             ptTL = {minX, minY};
             ptTR = {maxX, minY};
             ptBR = {maxX, maxY};
