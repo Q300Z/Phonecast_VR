@@ -35,6 +35,9 @@ public:
     virtual ::vr::EVRTrackedCameraError GetFrame(
         void* frameBuffer, uint32_t bufferSize,
         ::vr::CameraVideoStreamFrameHeader_t& header) = 0;
+
+    // Returns detailed error or status message if acquisition or streaming failed
+    virtual const char* GetLastError() const { return ""; }
 };
 
 }  // namespace phonecast::platform::openvr

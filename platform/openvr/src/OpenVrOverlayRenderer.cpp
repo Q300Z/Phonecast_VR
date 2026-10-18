@@ -954,7 +954,7 @@ public:
     void RenderTrackingDebugOverlay(const TrackedCameraDebugInfo& info) {
         if (trackingDebugOverlay == vr::k_ulOverlayHandleInvalid || overlayApi == nullptr) return;
         const auto now = std::chrono::steady_clock::now();
-        if (now - lastDebugRenderTime_ < std::chrono::milliseconds(50)) {
+        if (now - lastDebugRenderTime_ < std::chrono::milliseconds(100)) {
             return;
         }
         lastDebugRenderTime_ = now;
@@ -962,6 +962,7 @@ public:
         constexpr uint32_t width = 640;
         constexpr uint32_t height = 360;
         UiCanvas canvas(trackingDebugTexture_, width, height);
+        canvas.Clear({0, 0, 0, 0});
 
         // Dark sleek HUD panel with 16px rounded corners
         canvas.FillRoundedRect(0, 0, width, height, 16, {12, 18, 28, 240});
@@ -980,11 +981,15 @@ public:
         std::string camStatus = std::string("CAMERA: ") + info.sourceName +
             (info.streamingAcquired ? " [ACTIVE]" : " [OFFLINE]");
         std::ostringstream camMetrics;
-        camMetrics << "STREAM: " << info.frameWidth << "X" << info.frameHeight << " @ "
-                   << std::fixed << std::setprecision(1) << info.fps << " FPS"
-                   << " | SEQ: " << info.frameSequence;
+        if (!info.streamingAcquired && info.cameraError[0] != '\0') {
+            camMetrics << "ERROR: " << info.cameraError;
+        } else {
+            camMetrics << "STREAM: " << info.frameWidth << "X" << info.frameHeight << " @ "
+                       << std::fixed << std::setprecision(1) << info.fps << " FPS"
+                       << " | SEQ: " << info.frameSequence;
+        }
         canvas.DrawTextLeft(camStatus, 20, 48, 1, sectionColor);
-        canvas.DrawTextLeft(camMetrics.str(), 20, 68, 1, textColor);
+        canvas.DrawTextLeft(camMetrics.str(), 20, 68, 1, info.streamingAcquired ? textColor : redColor);
 
         // Section 2: Optical State
         std::string stateStr;
@@ -1043,8 +1048,16 @@ public:
         canvas.DrawTextLeft(metricsStr.str(), 20, 280, 1, textColor);
         canvas.DrawTextLeft(imuStr.str(), 20, 300, 1, info.hasImu ? greenColor : yellowColor);
 
-        canvas.DrawTextLeft("TIP: UNCHECK 'DIM PHONE WHILE CASTING' ON ANDROID FOR OPTICAL LOCK",
-                            20, 332, 1, headerColor);
+        if (!info.streamingAcquired) {
+            canvas.DrawTextLeft("TIP: ENABLE CAMERA IN STEAMVR SETTINGS > CAMERA",
+                                20, 332, 1, redColor);
+        } else if (!info.hasImu) {
+            canvas.DrawTextLeft("TIP: START PHONECAST SENDER APP ON ANDROID",
+                                20, 332, 1, yellowColor);
+        } else {
+            canvas.DrawTextLeft("TIP: HOLD PHONE IN FRONT OF HEADSET CAMERAS FOR OPTICAL LOCK",
+                                20, 332, 1, headerColor);
+        }
 
         overlayApi->SetOverlayRaw(trackingDebugOverlay, canvas.Pixels().data(), width, height, 4);
     }
@@ -1058,14 +1071,18 @@ public:
             if (poseValid) {
                 const float frameWidth = physicalWidthMeters > 0.0F ? physicalWidthMeters : 0.075F;
                 overlayApi->SetOverlayWidthInMeters(trackingFrameOverlay, frameWidth);
-                overlayApi->SetOverlayTransformAbsolute(trackingFrameOverlay, vr::TrackingUniverseStanding, &phoneTransform);
+                auto frameOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
+                                                      {0.0F, 1.0F, 0.0F, 0.0F},
+                                                      {0.0F, 0.0F, 1.0F, -0.002F}}};
+                auto frameTransform = Multiply(phoneTransform, frameOffset);
+                overlayApi->SetOverlayTransformAbsolute(trackingFrameOverlay, vr::TrackingUniverseStanding, &frameTransform);
                 overlayApi->ShowOverlay(trackingFrameOverlay);
             } else {
                 vr::HmdMatrix34_t hmdPose{};
                 if (DevicePose(vr::k_unTrackedDeviceIndex_Hmd, hmdPose)) {
                     auto searchOffset = vr::HmdMatrix34_t{{{1.0F, 0.0F, 0.0F, 0.0F},
                                                           {0.0F, 1.0F, 0.0F, -0.15F},
-                                                          {0.0F, 0.0F, 1.0F, -0.45F}}};
+                                                          {0.0F, 0.0F, 1.0F, -0.448F}}};
                     auto searchTransform = Multiply(hmdPose, searchOffset);
                     overlayApi->SetOverlayWidthInMeters(trackingFrameOverlay, 0.075F);
                     overlayApi->SetOverlayTransformAbsolute(trackingFrameOverlay, vr::TrackingUniverseStanding, &searchTransform);

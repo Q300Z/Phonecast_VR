@@ -47,6 +47,7 @@ struct TrackedCameraDebugInfo {
     bool active{false};
     bool streamingAcquired{false};
     char sourceName[64]{"none"};
+    char cameraError[64]{""};
     uint32_t frameWidth{0};
     uint32_t frameHeight{0};
     uint32_t frameSequence{0};

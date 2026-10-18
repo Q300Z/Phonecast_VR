@@ -134,12 +134,21 @@ public:
     }
 
     bool AcquireStreaming() override {
-        if (!cameraApi_) return false;
+        if (!cameraApi_) {
+            lastError_ = "OpenVR IVRTrackedCamera API unavailable";
+            return false;
+        }
         if (handle_ != 0) return true;
         cameraApi_->SetCameraTrackingSpace(::vr::TrackingUniverseStanding);
         const auto err = cameraApi_->AcquireVideoStreamingService(
             ::vr::k_unTrackedDeviceIndex_Hmd, &handle_);
-        return (err == ::vr::VRTrackedCameraError_None) && (handle_ != 0);
+        if (err != ::vr::VRTrackedCameraError_None || handle_ == 0) {
+            const char* errName = cameraApi_->GetCameraErrorNameFromEnum(err);
+            lastError_ = errName ? errName : "Acquire failed";
+            return false;
+        }
+        lastError_.clear();
+        return true;
     }
 
     void ReleaseStreaming() override {
@@ -147,7 +156,10 @@ public:
             cameraApi_->ReleaseVideoStreamingService(handle_);
             handle_ = 0;
         }
+        lastError_.clear();
     }
+
+    const char* GetLastError() const override { return lastError_.c_str(); }
 
     ::vr::EVRTrackedCameraError GetFrame(
         void* frameBuffer, uint32_t bufferSize,
@@ -166,6 +178,7 @@ private:
     ::vr::IVRSystem* system_{nullptr};
     ::vr::IVRTrackedCamera* cameraApi_{nullptr};
     ::vr::TrackedCameraHandle_t handle_{0};
+    std::string lastError_;
 };
 
 class AutoTrackedCameraSource : public ITrackedCameraSource {
@@ -263,6 +276,17 @@ public:
         return ::vr::VRTrackedCameraError_InvalidHandle;
     }
 
+    const char* GetLastError() const override {
+        if (activeSource_) return activeSource_->GetLastError();
+        if (openvrSource_ && std::strlen(openvrSource_->GetLastError()) > 0)
+            return openvrSource_->GetLastError();
+#if defined(__linux__)
+        if (v4l2Source_ && std::strlen(v4l2Source_->GetLastError()) > 0)
+            return v4l2Source_->GetLastError();
+#endif
+        return "";
+    }
+
 private:
     core::ILogger& logger_;
     std::unique_ptr<OpenVrTrackedCameraSource> openvrSource_;
@@ -330,9 +354,16 @@ void TrackedCameraWorker::SetScreenMetrics(const core::protocol::StreamScreenMet
     screenMetrics_.pixelWidth = metrics.pixelWidth;
     screenMetrics_.pixelHeight = metrics.pixelHeight;
     hasMetrics_ = screenMetrics_.IsValid();
-    if (screenMetrics_.WidthMeters() > 0.0F) {
+    {
         std::lock_guard<std::mutex> snapLock(snapshotMutex_);
-        latestSnapshot_.physicalWidthMeters = screenMetrics_.WidthMeters();
+        if (screenMetrics_.WidthMeters() > 0.0F) {
+            latestSnapshot_.physicalWidthMeters = screenMetrics_.WidthMeters();
+        }
+        latestDebugInfo_.hasMetrics = hasMetrics_;
+        latestDebugInfo_.metricsWidthMm = screenMetrics_.widthMillimeters;
+        latestDebugInfo_.metricsHeightMm = screenMetrics_.heightMillimeters;
+        latestDebugInfo_.physicalWidthMeters = screenMetrics_.WidthMeters();
+        latestDebugInfo_.physicalHeightMeters = screenMetrics_.HeightMeters();
     }
 }
 
@@ -353,6 +384,12 @@ void TrackedCameraWorker::IngestPhoneImu(const core::protocol::StreamPhoneImu& i
     latestImu_ = packet;
     hasImu_ = true;
     ++totalImuPackets_;
+
+    {
+        std::lock_guard<std::mutex> snapLock(snapshotMutex_);
+        latestDebugInfo_.hasImu = true;
+        latestDebugInfo_.imuPacketsReceived = totalImuPackets_;
+    }
 }
 
 bool TrackedCameraWorker::GetLatestPose(::vr::HmdMatrix34_t& outTransform, float* outPhysicalWidth) {
@@ -799,15 +836,31 @@ void TrackedCameraWorker::WorkerLoop() {
             latestDebugInfo_.active = active_.load();
             latestDebugInfo_.streamingAcquired = streamingAcquired;
             latestDebugInfo_.fps = currentFps_;
+            latestDebugInfo_.frameWidth = frameWidth_;
+            latestDebugInfo_.frameHeight = frameHeight_;
+            latestDebugInfo_.hasImu = hasImu_;
+            latestDebugInfo_.imuPacketsReceived = totalImuPackets_;
+            latestDebugInfo_.hasMetrics = hasMetrics_;
+            latestDebugInfo_.metricsWidthMm = screenMetrics_.widthMillimeters;
+            latestDebugInfo_.metricsHeightMm = screenMetrics_.heightMillimeters;
+            latestDebugInfo_.physicalWidthMeters = screenMetrics_.WidthMeters();
+            latestDebugInfo_.physicalHeightMeters = screenMetrics_.HeightMeters();
+
             if (cameraSource_) {
                 const char* srcName = cameraSource_->GetSourceName();
                 if (srcName != nullptr) {
                     std::strncpy(latestDebugInfo_.sourceName, srcName, sizeof(latestDebugInfo_.sourceName) - 1);
                     latestDebugInfo_.sourceName[sizeof(latestDebugInfo_.sourceName) - 1] = '\0';
                 }
+                const char* errStr = cameraSource_->GetLastError();
+                if (errStr != nullptr) {
+                    std::strncpy(latestDebugInfo_.cameraError, errStr, sizeof(latestDebugInfo_.cameraError) - 1);
+                    latestDebugInfo_.cameraError[sizeof(latestDebugInfo_.cameraError) - 1] = '\0';
+                }
             }
         }
 
+        bool frameProcessed = false;
         if (streamingAcquired && cameraSource_) {
             ::vr::CameraVideoStreamFrameHeader_t header{};
             const auto err = cameraSource_->GetFrame(
@@ -823,37 +876,40 @@ void TrackedCameraWorker::WorkerLoop() {
                     lastFpsTime_ = now;
                 }
                 ProcessFrame(frameBuffer_.data(), header);
-            } else {
-                // Between camera frames or during temporary camera dropout: drain IMU & update pose
-                std::vector<core::tracking::PhoneImuPacket> imusToDrain;
-                {
-                    std::lock_guard<std::mutex> lock(dataMutex_);
-                    while (!pendingImu_.empty()) {
-                        imusToDrain.push_back(pendingImu_.front());
-                        pendingImu_.pop_front();
-                    }
-                }
-                for (const auto& imu : imusToDrain) {
-                    fusion_.IngestImu(imu);
-                }
-                const uint64_t nowMicros = static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch()).count());
-                const auto fused = fusion_.EvaluatePose(nowMicros);
-                std::lock_guard<std::mutex> lock(snapshotMutex_);
-                latestSnapshot_.valid = fused.valid;
-                latestSnapshot_.state = fused.state;
-                latestSnapshot_.confidence = fused.confidence;
-                if (fused.valid) {
-                    latestSnapshot_.transform = Pose6DToHmdMatrix(fused);
-                    latestDebugInfo_.standingX = fused.position.x;
-                    latestDebugInfo_.standingY = fused.position.y;
-                    latestDebugInfo_.standingZ = fused.position.z;
-                }
-                latestDebugInfo_.state = fused.state;
-                latestDebugInfo_.poseValid = fused.valid;
-                latestDebugInfo_.confidence = fused.confidence;
+                frameProcessed = true;
             }
+        }
+
+        if (!frameProcessed) {
+            // Between camera frames or during camera dropout/offline: drain IMU & update dead reckoning
+            std::vector<core::tracking::PhoneImuPacket> imusToDrain;
+            {
+                std::lock_guard<std::mutex> lock(dataMutex_);
+                while (!pendingImu_.empty()) {
+                    imusToDrain.push_back(pendingImu_.front());
+                    pendingImu_.pop_front();
+                }
+            }
+            for (const auto& imu : imusToDrain) {
+                fusion_.IngestImu(imu);
+            }
+            const uint64_t nowMicros = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            const auto fused = fusion_.EvaluatePose(nowMicros);
+            std::lock_guard<std::mutex> lock(snapshotMutex_);
+            latestSnapshot_.valid = fused.valid;
+            latestSnapshot_.state = fused.state;
+            latestSnapshot_.confidence = fused.confidence;
+            if (fused.valid) {
+                latestSnapshot_.transform = Pose6DToHmdMatrix(fused);
+                latestDebugInfo_.standingX = fused.position.x;
+                latestDebugInfo_.standingY = fused.position.y;
+                latestDebugInfo_.standingZ = fused.position.z;
+            }
+            latestDebugInfo_.state = fused.state;
+            latestDebugInfo_.poseValid = fused.valid;
+            latestDebugInfo_.confidence = fused.confidence;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
