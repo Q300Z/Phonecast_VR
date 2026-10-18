@@ -246,13 +246,16 @@ public final class MainActivity extends Activity {
         mainContent.addView(intro, introParams);
 
         LinearLayout statusCard = card();
+        statusCard.setFocusable(true);
         statusView = text("Ready to cast", 20, COLOR_PRIMARY, Gravity.START);
         statusView.setLines(2);
         statusView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        statusView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         statusCard.addView(statusView, matchWrap());
         connectionDetailsView = text("No active receiver connection", 14, COLOR_SECONDARY, Gravity.START);
         connectionDetailsView.setLines(3);
         connectionDetailsView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        connectionDetailsView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         connectionDetailsView.setOnClickListener(view -> new AlertDialog.Builder(this)
                 .setTitle("Connection details").setMessage(connectionDetailsView.getText())
                 .setPositiveButton("OK", null).show());
@@ -260,6 +263,7 @@ public final class MainActivity extends Activity {
         metricsView = text("No active capture", 14, COLOR_SECONDARY, Gravity.START);
         metricsView.setLines(3);
         metricsView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        metricsView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         LinearLayout.LayoutParams metricsParams = matchWrap();
         metricsParams.setMargins(0, dp(8), 0, 0);
         statusCard.addView(metricsView, metricsParams);
@@ -297,12 +301,12 @@ public final class MainActivity extends Activity {
         primaryButton.setTextSize(18);
         primaryButton.setTextColor(Color.rgb(3, 18, 28));
         primaryButton.setAllCaps(false);
+        primaryButton.setMinHeight(dp(58));
         primaryButton.setBackgroundTintList(ColorStateList.valueOf(COLOR_PRIMARY));
         primaryButton.setOnClickListener(view -> {
             if (running) stopCapture(); else requestCapture();
         });
         LinearLayout.LayoutParams actionParams = matchWrap();
-        actionParams.height = dp(58);
         actionParams.setMargins(0, dp(8), 0, 0);
         mainContent.addView(primaryButton, actionParams);
 
@@ -869,7 +873,10 @@ public final class MainActivity extends Activity {
         field.setText(value);
         field.setTextColor(COLOR_TEXT);
         field.setHintTextColor(Color.rgb(119, 143, 163));
-        field.setPadding(dp(14), 0, dp(14), 0);
+        field.setPadding(dp(14), dp(10), dp(14), dp(10));
+        field.setMinHeight(dp(54));
+        field.setFocusable(true);
+        field.setFocusableInTouchMode(true);
         GradientDrawable background = new GradientDrawable();
         background.setColor(COLOR_SURFACE_HIGH);
         background.setCornerRadius(dp(12));
@@ -894,6 +901,7 @@ public final class MainActivity extends Activity {
         button.setTextColor(COLOR_TEXT);
         button.setTextSize(14);
         button.setAllCaps(false);
+        button.setMinHeight(dp(52));
         button.setBackgroundTintList(ColorStateList.valueOf(COLOR_SURFACE_HIGH));
         return button;
     }
@@ -911,14 +919,12 @@ public final class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams fieldParams() {
         LinearLayout.LayoutParams params = matchWrap();
-        params.height = dp(54);
         params.setMargins(0, 0, 0, dp(10));
         return params;
     }
 
     private LinearLayout.LayoutParams buttonParams() {
         LinearLayout.LayoutParams params = matchWrap();
-        params.height = dp(52);
         params.setMargins(0, dp(10), 0, 0);
         return params;
     }
