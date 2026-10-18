@@ -47,17 +47,25 @@ Supported portable events are:
 - `Up`
 - `Scroll`
 - `Back`
+- `Home`
+- `Recents`
+
+Text input is handled via dedicated `REMOTE_TEXT` messages containing UTF-8 strings.
 
 The stream protocol carries a fixed 16-byte input payload in a `REMOTE_INPUT` message. Coordinates and scroll deltas are bounded and validated on both endpoints. The event sequence is carried in the common message header. OpenVR types, Android types, and pixel dimensions do not enter the portable event contract.
 
-## VR controls
+## VR controls & 64 px footer layout
 
-- Point the controller laser at the phone overlay.
-- Press and release trigger for a tap.
-- Hold trigger, move, and release for a swipe or long press.
-- Runtime overlay scroll events map to Android scroll gestures.
-- Select **Back** from the PhoneCast dashboard or use the translucent `<` button at the lower-left edge of the phone overlay.
-- Point at the horizontal handle below the phone, hold trigger, move, and release to reposition the overlay. The handle is outside the Android touch surface, so trigger gestures on the phone remain unambiguous.
+The 64 px footer below the phone screen provides complete system navigation and overlay manipulation targets:
+
+- **Point laser & trigger**: tap, swipe, long-press, or held-trigger drag scroll across the Android screen.
+- **Back (`<`)**: triggers Android's system Back navigation (`GLOBAL_ACTION_BACK`).
+- **Home (`◯`)**: returns to Android's home screen (`GLOBAL_ACTION_HOME`).
+- **Recents (`▢`)**: opens the Android multitasking overview / app switcher (`GLOBAL_ACTION_RECENTS`).
+- **Keyboard (`⌨`)**: opens the native SteamVR virtual keyboard overlay (`IVROverlay::ShowKeyboardForOverlay`). Typed characters or submitted text are streamed as `REMOTE_TEXT` and injected into the active focused Android input view via `PhoneCastAccessibilityService`.
+- **Move handle**: hold trigger to reposition the overlay in 3D space. While holding, push/pull the thumbstick to adjust distance (depth scroll).
+- **Close (`×`)**: hides the phone overlay locally without disconnecting.
+- **Resize corner**: drag to scale the overlay width and height.
 
 For a tap or stationary long press, Android receives one complete gesture on trigger release. Once a held pointer starts moving, the Accessibility service uses `StrokeDescription.continueStroke` to dispatch serialized gesture segments while trigger remains held. This permits live drag-scrolling instead of waiting until release; the final segment releases the injected finger.
 

@@ -25,8 +25,8 @@ Use your own captures and hide pairing codes, notification text, and personal de
 ## What you can do
 
 - **View your phone in VR:** local-network H.264 streaming targeting 30 FPS, with portrait and landscape support.
-- **Place it where you want:** world/head placement or left/right controller docking, with move and resize handles.
-- **Control Android:** tap, hold, swipe, drag-scroll, and Android Back with the dashboard laser when optional remote control is enabled.
+- **Place it where you want:** world/head placement, left/right controller docking, or automatic 6-DoF phone camera tracking (`PhoneTracked`) with mixed-reality passthrough cutout around your physical phone.
+- **Control Android & type:** tap, hold, swipe, drag-scroll, system navigation (Back `<`, Home `◯`, Recents `▢`), and SteamVR virtual keyboard text input (`⌨`) when remote control is enabled.
 - **Hear phone audio:** optional supported playback capture, headset volume/mute controls, and local-phone mute.
 - **See notifications:** optional cards, app allow/block lists, and notification-to-app navigation; sensitive content is redacted by default.
 - **Keep setup convenient:** Find headset on LAN, saved receiver details, Android Quick connect widget, in-headset settings, and reconnect during an active capture session.
@@ -89,7 +89,8 @@ If the headset IP changes during a failed cast, stop casting, search/select agai
 - Open the normal SteamVR dashboard and select **PhoneCast** for Show/Hide, placement, Settings, and Quit.
 - **Show** places the phone at your configured world-space Start Location while preserving its size.
 - With the dashboard open, point the controller laser at the phone to interact. Hold the bottom **Move** handle to reposition; use joystick push/pull while holding it to adjust depth. Use the **Resize** corner to change size.
-- The phone footer keeps **Android Back**, **Move**, **Close**, and **Resize** separate. Close hides the panel; dashboard Quit stops the receiver.
+- The phone footer provides full navigation: **Android Back (`<`)**, **Home (`◯`)**, **Recents (`▢`)**, **Virtual Keyboard (`⌨`)**, **Move**, **Close (`×`)**, and **Resize**. Close hides the panel; dashboard Quit stops the receiver.
+- In **Phone Tracked** placement mode, the headset camera tracks your smartphone screen in 6-DoF, projecting a mixed-reality passthrough cutout of your physical hands and device inside the virtual world.
 - With the dashboard closed, the phone remains visible but is **view-only**, preserving game input.
 - Dashboard-closed shortcuts: long-press either stick to toggle visibility; double-click a stick to dock to that hand; repeat while docked to pin in world space. These may conflict with game controls—remap or unbind them in SteamVR. Per-shortcut toggles are not implemented yet.
 

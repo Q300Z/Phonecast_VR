@@ -66,6 +66,9 @@ Message types:
 12. `AUDIO_CONFIG` — negotiated phone playback format and capture epoch.
 13. `AUDIO_FRAME` — one independent 10 ms PCM block.
 14. `AUDIO_STATUS` — playback capture off/active/silent/error status.
+15. `SCREEN_METRICS` — physical dimensions in mm, pixel resolution, and density DPI of the phone display.
+16. `PHONE_IMU` — high-rate inertial orientation quaternion and accelerometer/gyroscope readings.
+17. `REMOTE_TEXT` — receiver-to-phone UTF-8 text string payload injected into active Android focus via accessibility.
 
 Audio types are accepted only after capability negotiation on an authenticated
 connection. Their flags, width, and height must be zero. They have independent
@@ -117,7 +120,13 @@ See [`phone-audio.md`](phone-audio.md) for output buffering, timing limitations,
 privacy, compatibility tests, owner-approved native playback evidence, and deferred
 physical cases.
 
-A `REMOTE_INPUT` payload is exactly 16 bytes: one event-type byte (`DOWN`, `MOVE`, `UP`, `SCROLL`, or `BACK`), three reserved zero bytes, then network-byte-order IEEE-754 float32 values for normalized X, normalized Y, and scroll delta. Coordinates are top-left-origin and limited to `[0, 1]`; scroll is limited to `[-1, 1]`. The common header sequence field orders input within a connection. Both endpoints reject malformed types, lengths, non-finite values, and out-of-range values.
+A `REMOTE_INPUT` payload is exactly 16 bytes: one event-type byte (`DOWN` = 1, `MOVE` = 2, `UP` = 3, `SCROLL` = 4, `BACK` = 5, `HOME` = 6, or `RECENTS` = 7), three reserved zero bytes, then network-byte-order IEEE-754 float32 values for normalized X, normalized Y, and scroll delta. Coordinates are top-left-origin and limited to `[0, 1]`; scroll is limited to `[-1, 1]`. The common header sequence field orders input within a connection. `HOME` and `RECENTS` trigger Android's `GLOBAL_ACTION_HOME` and `GLOBAL_ACTION_RECENTS` through `PhoneCastAccessibilityService`. Both endpoints reject malformed types, lengths, non-finite values, and out-of-range values.
+
+A `REMOTE_TEXT` payload carries variable-length UTF-8 text (up to 4096 bytes) entered via the SteamVR virtual keyboard (`IVROverlay::ShowKeyboardForOverlay`). Upon reception, `PhoneCastAccessibilityService` locates the active focused input node and injects the text directly via `ACTION_SET_TEXT`.
+
+A `SCREEN_METRICS` payload (Type 15) is exactly 32 bytes: version 1, flags, uint16 density DPI, uint32 pixel width and height, float32 physical width and height in millimeters, and float32 xdpi/ydpi.
+
+A `PHONE_IMU` payload (Type 16) is exactly 48 bytes: version 1, sensor type, accuracy, flags, followed by float32 orientation quaternion (`qx`, `qy`, `qz`, `qw`), gyroscope angular velocities (`gyroX`, `gyroY`, `gyroZ`), and accelerometer readings (`accelX`, `accelY`, `accelZ`).
 
 A `NOTIFICATION` payload starts with a one-byte payload version (`2`), one-byte flags field (bit 0 means content was redacted), four network-byte-order uint16 byte lengths for application label, title, body, and package name, a network-byte-order uint64 Android post time in milliseconds, and a uint64 opaque action token (`0` when unavailable). Version-1 payloads remain readable and imply no action token. The four bounded UTF-8 fields follow in that order. Each field is limited to 1024 bytes, all lengths are validated, and application/package fields may not be empty. Notification cards use a separate bounded sender queue and do not participate in H.264 frame sequencing or keyframe recovery.
 

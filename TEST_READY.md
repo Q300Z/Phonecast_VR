@@ -8,7 +8,7 @@ This document certifies that the **PhoneCast VR End-to-End Tracking Test Suite**
 - **Source File**: `tests/e2e_tracking_suite_tests.cpp`
 - **Total Test Suites**: 38 test suites across 4 systematic tiers
 - **Total Assertions Verified**: **208 passed, 0 failed (100% Success)**
-- **Total CTest Test Targets**: **19 / 19 passed (100% Success)**
+- **Total CTest Test Targets**: **21 / 21 passed (100% Success)**
 - **Test Integrity**: Strict opaque-box testing executing genuine computer vision, RANSAC, DLT+LHM PnP solving, Eigen3 SVD math, and loopback TCP sockets without dummy facade tests.
 
 ---
@@ -38,54 +38,37 @@ Execution Time: **4.21 seconds**.
 ### Full Repository CTest Run
 **Command**:
 ```bash
-ctest --test-dir out/build/linux-test --output-on-failure
+ctest --test-dir out/build/linux-test -j$(nproc) --output-on-failure
 ```
 
 **CTest Suite Summary**:
 ```
 Test project /home/tboutin/Documents/Phonecast_VR/out/build/linux-test
-      Start  1: receiver-cli-help
- 1/19 Test  #1: receiver-cli-help .............................   Passed    0.00 sec
-      Start  2: receiver-cli-rejects-invalid-option
- 2/19 Test  #2: receiver-cli-rejects-invalid-option ...........   Passed    0.00 sec
-      Start  3: vr-stream-receiver-cli-help
- 3/19 Test  #3: vr-stream-receiver-cli-help ...................   Passed    0.00 sec
-      Start  4: vr-diagnostic-cli-help
- 4/19 Test  #4: vr-diagnostic-cli-help ........................   Passed    0.00 sec
-      Start  5: phonecast-support-tests
- 5/19 Test  #5: phonecast-support-tests .......................   Passed    0.23 sec
-      Start  6: phonecast-unit-tests
- 6/19 Test  #6: phonecast-unit-tests ..........................   Passed    0.27 sec
-      Start  7: phonecast-adversarial-tests
- 7/19 Test  #7: phonecast-adversarial-tests ...................   Passed    0.02 sec
-      Start  8: phonecast-tracking-tests
- 8/19 Test  #8: phonecast-tracking-tests ......................   Passed    0.00 sec
-      Start  9: phonecast-tracking-adversarial-tests
- 9/19 Test  #9: phonecast-tracking-adversarial-tests ..........   Passed    0.75 sec
-      Start 10: phonecast-tracking-challenger-tests
-10/19 Test #10: phonecast-tracking-challenger-tests ...........   Passed    0.01 sec
-      Start 11: phonecast-tracking-coverage-hardening-tests
-11/19 Test #11: phonecast-tracking-coverage-hardening-tests ...   Passed    0.01 sec
-      Start 12: phonecast-tracked-camera-tests
-12/19 Test #12: phonecast-tracked-camera-tests ................   Passed    0.27 sec
-      Start 13: phonecast-m3-challenger-tests
-13/19 Test #13: phonecast-m3-challenger-tests .................   Passed    3.22 sec
-      Start 14: phonecast-m3-challenger2-tests
-14/19 Test #14: phonecast-m3-challenger2-tests ................   Passed    3.26 sec
-      Start 15: phonecast-e2e-tracking-tests
-15/19 Test #15: phonecast-e2e-tracking-tests ..................   Passed    4.22 sec
-      Start 16: phonecast-m4-challenger4-tests
-16/19 Test #16: phonecast-m4-challenger4-tests ................   Passed    1.44 sec
-      Start 17: phonecast-m4-challenger5-tests
-17/19 Test #17: phonecast-m4-challenger5-tests ................   Passed    0.00 sec
-      Start 18: phonecast-audio-tests
-18/19 Test #18: phonecast-audio-tests .........................   Passed    2.67 sec
-      Start 19: phonecast-standalone-runtime-tests
-19/19 Test #19: phonecast-standalone-runtime-tests ............   Passed    0.00 sec
+ 1/21 Test #10: phonecast-tracking-robustness-tests ............   Passed    0.01 sec
+ 2/21 Test #11: phonecast-tracking-boundary-tests ..............   Passed    0.01 sec
+ 3/21 Test  #8: phonecast-tracking-core-tests ..................   Passed    0.01 sec
+ 4/21 Test #21: phonecast-standalone-runtime-tests .............   Passed    0.01 sec
+ 5/21 Test  #2: receiver-cli-rejects-invalid-option ............   Passed    0.01 sec
+ 6/21 Test  #3: vr-stream-receiver-cli-help ....................   Passed    0.00 sec
+ 7/21 Test  #1: receiver-cli-help ..............................   Passed    0.00 sec
+ 8/21 Test #19: phonecast-overlay-settings-adversarial-tests ...   Passed    0.01 sec
+ 9/21 Test  #4: vr-diagnostic-cli-help .........................   Passed    0.00 sec
+10/21 Test  #7: phonecast-protocol-adversarial-tests ...........   Passed    0.02 sec
+11/21 Test  #5: phonecast-support-tests ........................   Passed    0.23 sec
+12/21 Test #13: phonecast-tracked-camera-tests .................   Passed    0.27 sec
+13/21 Test  #6: phonecast-unit-tests ...........................   Passed    0.28 sec
+14/21 Test  #9: phonecast-tracking-adversarial-tests ...........   Passed    0.76 sec
+15/21 Test #14: phonecast-tracked-camera-stress-tests ..........   Passed    0.92 sec
+16/21 Test #18: phonecast-network-stress-tests .................   Passed    1.05 sec
+17/21 Test #17: phonecast-network-concurrency-tests ............   Passed    1.43 sec
+18/21 Test #20: phonecast-audio-tests ..........................   Passed    2.67 sec
+19/21 Test #15: phonecast-tracked-camera-pose-tests ............   Passed    3.26 sec
+20/21 Test #12: phonecast-tracking-accuracy-stress-tests .......   Passed    3.71 sec
+21/21 Test #16: phonecast-e2e-tracking-tests ...................   Passed    4.23 sec
 
-100% tests passed out of 19
+100% tests passed out of 21
 
-Total Test time (real) =  16.39 sec
+Total Test time (real) =   4.23 sec
 ```
 
 ---
