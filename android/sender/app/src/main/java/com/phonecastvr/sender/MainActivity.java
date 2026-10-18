@@ -79,6 +79,11 @@ public final class MainActivity extends Activity {
     private boolean running;
     private Button findHeadsetButton;
     private LanDiscovery discovery;
+    private TextView permAccessibilityStatus;
+    private TextView permWriteSettingsStatus;
+    private TextView permAudioStatus;
+    private TextView permNotificationListenerStatus;
+    private TextView permPostNotificationsStatus;
 
     private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -115,6 +120,7 @@ public final class MainActivity extends Activity {
         updateAccessibilityButton();
         updateNotificationAccessButton();
         updateBrightnessControls();
+        updatePermissionsStatus();
     }
 
     @Override protected void onResume() {
@@ -123,6 +129,7 @@ public final class MainActivity extends Activity {
         updateAccessibilityButton();
         updateNotificationAccessButton();
         updateBrightnessControls();
+        updatePermissionsStatus();
         ScreenCaptureService.remoteControlStatusChanged(this);
         if (playbackAudioView != null && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
             playbackAudioView.setChecked(false);
@@ -325,6 +332,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams introParams = matchWrap();
         introParams.setMargins(0, dp(4), 0, dp(16));
         settingsContent.addView(intro, introParams);
+        settingsContent.addView(buildPermissionsCard(), cardParams());
 
         SharedPreferences preferences = senderPreferences();
 
@@ -573,6 +581,7 @@ public final class MainActivity extends Activity {
             updateAccessibilityButton();
             updateNotificationAccessButton();
             updateBrightnessControls();
+            updatePermissionsStatus();
         }
     }
 
@@ -693,10 +702,12 @@ public final class MainActivity extends Activity {
             captureAfterPermission = false;
             launchCaptureConsent();
         }
+        updatePermissionsStatus();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        updatePermissionsStatus();
         if (requestCode == REQUEST_WRITE_SETTINGS) {
             updateBrightnessControls();
             continueCaptureRequest();
@@ -831,6 +842,177 @@ public final class MainActivity extends Activity {
         notificationAccessButton.setText(active
                 ? R.string.notification_access_enabled
                 : R.string.open_notification_access_settings);
+    }
+
+    private void updatePermissionsStatus() {
+        if (permAccessibilityStatus != null) {
+            boolean active = RemoteControlAccessibilityService.isConnected();
+            setBadgeStatus(permAccessibilityStatus, active, "Active", "Configure");
+        }
+        if (permWriteSettingsStatus != null) {
+            boolean granted = Settings.System.canWrite(this);
+            setBadgeStatus(permWriteSettingsStatus, granted, "Granted", "Configure");
+        }
+        if (permAudioStatus != null) {
+            boolean granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED;
+            setBadgeStatus(permAudioStatus, granted, "Granted", "Request");
+        }
+        if (permNotificationListenerStatus != null) {
+            String enabled = Settings.Secure.getString(getContentResolver(),
+                    "enabled_notification_listeners");
+            boolean active = enabled != null && enabled.contains(getPackageName());
+            setBadgeStatus(permNotificationListenerStatus, active, "Active", "Configure");
+        }
+        if (permPostNotificationsStatus != null) {
+            boolean granted = Build.VERSION.SDK_INT < 33 ||
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                            PackageManager.PERMISSION_GRANTED;
+            setBadgeStatus(permPostNotificationsStatus, granted, "Granted", "Request");
+        }
+    }
+
+    private void setBadgeStatus(TextView badge, boolean granted, String grantedText, String deniedText) {
+        if (badge == null) return;
+        badge.setText(granted ? grantedText : deniedText);
+        badge.setTextColor(granted ? COLOR_SUCCESS : Color.rgb(255, 191, 90));
+
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setCornerRadius(dp(8));
+        badgeBg.setColor(granted ? Color.argb(40, 76, 210, 145) : Color.argb(40, 255, 191, 90));
+        badgeBg.setStroke(dp(1), granted ? Color.argb(140, 76, 210, 145) : Color.argb(140, 255, 191, 90));
+        badge.setBackground(badgeBg);
+    }
+
+    private LinearLayout buildPermissionsCard() {
+        LinearLayout permCard = card();
+        permCard.addView(sectionTitle("System permissions"), matchWrap());
+        permCard.addView(text(
+                "PhoneCast requires specific Android permissions for streaming, audio, remote control gestures, and notification mirroring. Tap any item to view or configure.",
+                13, COLOR_SECONDARY, Gravity.START), spaced(0, dp(6), 0, dp(12)));
+
+        permAccessibilityStatus = permissionBadge();
+        LinearLayout rowAccessibility = permissionRow(
+                "Remote control (Accessibility)",
+                "Inject touch and navigation inputs from VR controllers",
+                permAccessibilityStatus,
+                view -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    } catch (ActivityNotFoundException e) {
+                        updateState(running, "Could not open Accessibility settings", 0, 0, 0, 0, 0, -1);
+                    }
+                });
+        permCard.addView(rowAccessibility, fieldParams());
+
+        permWriteSettingsStatus = permissionBadge();
+        LinearLayout rowWriteSettings = permissionRow(
+                "Modify system settings",
+                "Extend screen timeout and manage phone dimming while casting",
+                permWriteSettingsStatus,
+                view -> openBrightnessSettings(false));
+        permCard.addView(rowWriteSettings, fieldParams());
+
+        permAudioStatus = permissionBadge();
+        LinearLayout rowAudio = permissionRow(
+                "Audio capture",
+                "Stream internal phone playback audio to VR headset",
+                permAudioStatus,
+                view -> {
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO);
+                    } else {
+                        openAppDetailsSettings();
+                    }
+                });
+        permCard.addView(rowAudio, fieldParams());
+
+        permNotificationListenerStatus = permissionBadge();
+        LinearLayout rowNotificationListener = permissionRow(
+                "Notification mirroring",
+                "Display incoming notifications inside VR overlays",
+                permNotificationListenerStatus,
+                view -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                    } catch (ActivityNotFoundException e) {
+                        updateState(running, "Could not open Notification access settings", 0, 0, 0, 0, 0, -1);
+                    }
+                });
+        permCard.addView(rowNotificationListener, fieldParams());
+
+        permPostNotificationsStatus = permissionBadge();
+        LinearLayout rowPostNotifications = permissionRow(
+                "Foreground notifications",
+                "Display casting status and prevent background termination",
+                permPostNotificationsStatus,
+                view -> {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+                        } else {
+                            openAppDetailsSettings();
+                        }
+                    } else {
+                        openAppDetailsSettings();
+                    }
+                });
+        permCard.addView(rowPostNotifications, matchWrap());
+
+        updatePermissionsStatus();
+        return permCard;
+    }
+
+    private LinearLayout permissionRow(String title, String description, TextView badge, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setMinimumHeight(dp(54));
+        row.setFocusable(true);
+        row.setClickable(true);
+
+        GradientDrawable rowBg = new GradientDrawable();
+        rowBg.setColor(COLOR_SURFACE_HIGH);
+        rowBg.setCornerRadius(dp(10));
+        row.setBackground(rowBg);
+
+        LinearLayout textLayout = new LinearLayout(this);
+        textLayout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textParams.setMargins(0, 0, dp(12), 0);
+
+        TextView titleView = text(title, 15, COLOR_TEXT, Gravity.START);
+        titleView.setTypeface(titleView.getTypeface(), android.graphics.Typeface.BOLD);
+        textLayout.addView(titleView, matchWrap());
+
+        TextView descView = text(description, 12, COLOR_SECONDARY, Gravity.START);
+        textLayout.addView(descView, matchWrap());
+
+        row.addView(textLayout, textParams);
+        row.addView(badge, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        row.setOnClickListener(onClick);
+        return row;
+    }
+
+    private TextView permissionBadge() {
+        TextView badge = new TextView(this);
+        badge.setTextSize(12);
+        badge.setTypeface(badge.getTypeface(), android.graphics.Typeface.BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(dp(10), dp(5), dp(10), dp(5));
+        return badge;
+    }
+
+    private void openAppDetailsSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (ActivityNotFoundException error) {
+            updateState(running, "Could not open application settings", 0, 0, 0, 0, 0, -1);
+        }
     }
 
     private SharedPreferences senderPreferences() {

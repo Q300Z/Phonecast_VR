@@ -1,4 +1,7 @@
 <resources>
     <color name="phonecast_blue">#2ABCFB</color>
     <color name="phonecast_dark">#0A101C</color>
+    <color name="phonecast_background">#070D17</color>
+    <color name="phonecast_surface">#111C2B</color>
+    <color name="phonecast_surface_high">#18283B</color>
 </resources>

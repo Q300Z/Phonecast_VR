@@ -1,8 +1,14 @@
 <resources>
-    <style name="Theme.PhoneCast" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.PhoneCast" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">@color/phonecast_blue</item>
+        <item name="android:colorPrimary">@color/phonecast_blue</item>
+        <item name="android:colorPrimaryDark">@color/phonecast_dark</item>
+        <item name="android:colorBackground">@color/phonecast_background</item>
+        <item name="android:windowBackground">@color/phonecast_background</item>
         <item name="android:navigationBarColor">@color/phonecast_dark</item>
         <item name="android:statusBarColor">@color/phonecast_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>
