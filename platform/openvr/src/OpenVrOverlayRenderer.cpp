@@ -1570,11 +1570,7 @@ public:
                                 vr::HmdMatrix34_t& relative) {
             if (device == vr::k_unTrackedDeviceIndexInvalid) return;
             vr::HmdMatrix34_t pose{}, head{};
-            if (!DevicePose(device, pose)) {
-                if (handle == overlay) EndGrab(device);
-                else EndSettingsGrab(device);
-                return;
-            }
+            if (!DevicePose(device, pose)) return;
             const auto tracked = Multiply(pose, relative);
             if (handle == overlay) grabLastAbsolute = tracked;
             else settingsWorldTransform = tracked;
@@ -2251,11 +2247,18 @@ bool OpenVrOverlayRenderer::PumpEvents() {
     }
     while (impl_->overlayApi->PollNextOverlayEvent(
                impl_->settingsOverlay, &event, sizeof(event))) {
-        if (event.eventType == vr::VREvent_FocusLeave || event.eventType == vr::VREvent_OverlayHidden) {
+        if (event.eventType == vr::VREvent_OverlayHidden) {
             impl_->EndSettingsGrab(impl_->settingsGrabbedDevice);
+            if (impl_->settingsResizing) impl_->EndSettingsResize();
             impl_->settingsPointerDown = false;
             impl_->settingsDraggingSlider = false;
             impl_->lastHoveredSettingsRow = -1;
+        } else if (event.eventType == vr::VREvent_FocusLeave) {
+            if (!impl_->settingsPointerDown &&
+                impl_->settingsGrabbedDevice == vr::k_unTrackedDeviceIndexInvalid &&
+                !impl_->settingsResizing) {
+                impl_->lastHoveredSettingsRow = -1;
+            }
         } else if (event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
             impl_->settingsPointerDown = true;
@@ -2335,7 +2338,7 @@ bool OpenVrOverlayRenderer::PumpEvents() {
         }
     }
     while (impl_->overlayApi->PollNextOverlayEvent(impl_->overlay, &event, sizeof(event))) {
-        if (event.eventType == vr::VREvent_FocusLeave || event.eventType == vr::VREvent_OverlayHidden) {
+        if (event.eventType == vr::VREvent_OverlayHidden) {
             impl_->EndGrab(impl_->grabbedDevice);
             if (impl_->resizing) impl_->EndResize();
             if (impl_->pointerDown) {
@@ -2346,6 +2349,18 @@ bool OpenVrOverlayRenderer::PumpEvents() {
             if (impl_->currentFooterHover != FooterHoverTarget::None) {
                 impl_->currentFooterHover = FooterHoverTarget::None;
                 impl_->UpdateFooterHover(FooterHoverTarget::None);
+            }
+        } else if (event.eventType == vr::VREvent_FocusLeave) {
+            if (impl_->grabbedDevice == vr::k_unTrackedDeviceIndexInvalid && !impl_->resizing) {
+                if (impl_->pointerDown) {
+                    impl_->QueuePointer(impl_->interaction.PointerUp(impl_->lastPointerX, impl_->lastPointerY));
+                    impl_->pointerDown = false;
+                }
+                impl_->backButtonDown = false;
+                if (impl_->currentFooterHover != FooterHoverTarget::None) {
+                    impl_->currentFooterHover = FooterHoverTarget::None;
+                    impl_->UpdateFooterHover(FooterHoverTarget::None);
+                }
             }
         } else if (!impl_->calibrationActive && event.eventType == vr::VREvent_MouseButtonDown &&
             (event.data.mouse.button & vr::VRMouseButton_Left) != 0) {
@@ -2393,7 +2408,8 @@ bool OpenVrOverlayRenderer::PumpEvents() {
                     impl_->BeginGrab(event.trackedDeviceIndex);
                 }
             } else if (impl_->interaction.IsGrabHandle(event.data.mouse.y)) {
-                // Click on blank background area of the nav bar; consume without sending touch to phone.
+                // Click on blank background area of the nav bar; grab overlay like top bar.
+                impl_->BeginGrab(event.trackedDeviceIndex);
             } else {
                 impl_->pointerDown = true;
                 impl_->lastPointerX = event.data.mouse.x;
